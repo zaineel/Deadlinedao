@@ -5,17 +5,12 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --primary: #2563eb;
-  --primary-dark: #1d4ed8;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --primary: #3b82f6;
+  --primary-dark: #1e40af;
+  --secondary: #8b5cf6;
+  --accent: #06b6d4;
 }
 
 body {
@@ -56,17 +51,20 @@ body {
 
 @layer components {
   .btn-primary {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1.5rem;
     border-radius: 0.5rem;
-    background-color: #2563eb;
+    background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
     color: #ffffff;
     font-weight: 600;
-    transition-property: background-color;
+    font-size: 1rem;
+    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    transition-duration: 200ms;
+    box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
   }
   .btn-primary:hover {
-    background-color: #1d4ed8;
+    transform: translateY(-2px);
+    box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.4);
   }
   .btn-primary:disabled {
     opacity: 0.5;
@@ -74,17 +72,20 @@ body {
   }
 
   .btn-secondary {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1.5rem;
     border-radius: 0.5rem;
-    border: 2px solid #2563eb;
-    color: #2563eb;
+    border: 2px solid #3b82f6;
+    color: #3b82f6;
     font-weight: 600;
-    transition-property: background-color;
+    font-size: 1rem;
+    background-color: transparent;
+    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    transition-duration: 200ms;
   }
   .btn-secondary:hover {
-    background-color: #eff6ff;
+    background-color: rgba(59, 130, 246, 0.1);
+    transform: translateY(-2px);
   }
   .btn-secondary:disabled {
     opacity: 0.5;
@@ -92,17 +93,21 @@ body {
   }
 
   .btn-outline {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1.5rem;
     border-radius: 0.5rem;
-    border: 1px solid #d1d5db;
-    color: #374151;
+    border: 1px solid #475569;
+    color: #e2e8f0;
     font-weight: 600;
-    transition-property: background-color;
+    font-size: 1rem;
+    background-color: transparent;
+    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    transition-duration: 200ms;
   }
   .btn-outline:hover {
-    background-color: #f9fafb;
+    background-color: rgba(226, 232, 240, 0.1);
+    border-color: #3b82f6;
+    transform: translateY(-2px);
   }
   .btn-outline:disabled {
     opacity: 0.5;
@@ -110,32 +115,40 @@ body {
   }
 
   .card {
-    background-color: #ffffff;
-    border-radius: 0.5rem;
-    border: 1px solid #e5e7eb;
-    padding: 1.5rem;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    transition-property: box-shadow;
+    background: linear-gradient(135deg, rgba(51, 65, 85, 0.5) 0%, rgba(30, 64, 175, 0.1) 100%);
+    border-radius: 0.75rem;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    padding: 2rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    transition-duration: 200ms;
+    backdrop-filter: blur(10px);
   }
   .card:hover {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 25px 50px -12px rgba(59, 130, 246, 0.3);
+    transform: translateY(-4px);
   }
 
   .input-base {
     width: 100%;
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     border-radius: 0.5rem;
-    border: 1px solid #d1d5db;
-    transition-property: outline, border-color;
+    border: 1px solid #475569;
+    background-color: rgba(51, 65, 85, 0.5);
+    color: #e2e8f0;
+    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
   }
+  .input-base::placeholder {
+    color: #94a3b8;
+  }
   .input-base:focus {
     outline: none;
-    box-shadow: 0 0 0 2px #3b82f6;
-    border-color: transparent;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
   }
 }
 
@@ -153,6 +166,14 @@ body {
   }
 
   .gradient-primary {
-    background: linear-gradient(to bottom, #ffffff, #f9fafb);
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0f172a 100%);
+  }
+
+  .gradient-hero {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 1) 0%, rgba(30, 64, 175, 0.3) 50%, rgba(15, 23, 42, 1) 100%);
+  }
+
+  .glow-blue {
+    background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.3) 0%, transparent 60%);
   }
 }
