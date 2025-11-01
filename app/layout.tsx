@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import MainLayout from "@/components/layout/MainLayout";
 
 export const metadata: Metadata = {
   title: "DeadlineDAO - AI-Powered Accountability",
@@ -14,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        {children}
+        <MainLayout>{children}</MainLayout>
       </body>
     </html>
   );
