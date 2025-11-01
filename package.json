@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:supabase": "tsx scripts/test-supabase.ts",
+    "generate:keypair": "tsx scripts/generate-solana-keypair.ts"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +30,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwindcss": "^4.1.16",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }
