@@ -37,16 +37,17 @@ function createConnection(): snowflake.Connection {
 
   try {
     if (process.env.SNOWFLAKE_PRIVATE_KEY) {
-      console.log("[Snowflake] Using private key from environment");
-      const cleaned = process.env.SNOWFLAKE_PRIVATE_KEY.trim().replace(
-        /\s+/g,
-        ""
-      );
-      const keyData = Buffer.from(cleaned, "base64");
+      console.log("[Snowflake] Using private key from environment variable");
+
+      // Decode back to UTF-8 PEM string
+      const pemKey = Buffer.from(
+        process.env.SNOWFLAKE_PRIVATE_KEY.trim().replace(/\s+/g, ""),
+        "base64"
+      ).toString("utf8");
 
       privateKey = crypto.createPrivateKey({
-        key: keyData,
-        format: "der",
+        key: pemKey,
+        format: "pem", // ✅ it’s actually PEM text, not DER
         type: "pkcs8",
       });
     } else {
