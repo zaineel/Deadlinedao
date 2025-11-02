@@ -3,7 +3,8 @@
  * Uses Snowflake Node.js SDK with keypair authentication
  */
 
-import snowflake from 'snowflake-sdk';
+import snowflake from "snowflake-sdk";
+import crypto from "crypto";
 
 interface SnowflakeConfig {
   account: string;
@@ -19,17 +20,17 @@ interface SnowflakeConfig {
  */
 function getSnowflakeConfig(): SnowflakeConfig {
   const account = process.env.SNOWFLAKE_ACCOUNT;
-  const username = process.env.SNOWFLAKE_USERNAME || 'ZAINEEL';
-  const warehouse = process.env.SNOWFLAKE_WAREHOUSE || 'COMPUTE_WH';
+  const username = process.env.SNOWFLAKE_USERNAME || "ZAINEEL";
+  const warehouse = process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH";
 
   if (!account) {
-    throw new Error('Missing SNOWFLAKE_ACCOUNT environment variable');
+    throw new Error("Missing SNOWFLAKE_ACCOUNT environment variable");
   }
 
   return {
     account,
     username,
-    privateKeyPath: '', // Not needed anymore, kept for interface compatibility
+    privateKeyPath: "", // Not needed anymore, kept for interface compatibility
     warehouse,
   };
 }
@@ -41,32 +42,36 @@ function createConnection(): snowflake.Connection {
   const config = getSnowflakeConfig();
 
   // Read private key from environment variable (production) or file (local)
-  let privateKeyData: string;
+  let privateKey: crypto.KeyObject;
 
   if (process.env.SNOWFLAKE_PRIVATE_KEY) {
-    // Production: Read from environment variable
-    console.log('[Snowflake] Using private key from environment variable');
-    privateKeyData = process.env.SNOWFLAKE_PRIVATE_KEY;
+    console.log("[Snowflake] Using private key from environment variable");
+    const keyData = Buffer.from(process.env.SNOWFLAKE_PRIVATE_KEY, "base64");
+    privateKey = crypto.createPrivateKey({
+      key: keyData,
+      format: "der",
+      type: "pkcs8",
+    });
   } else {
-    // Local development: Read from file (lazy import to avoid serverless issues)
-    console.log('[Snowflake] Using private key from file (local development)');
-    try {
-      const { readFileSync } = require('fs');
-      const { join } = require('path');
-      const privateKeyPath = join(process.cwd(), '.snowflake-keys', 'rsa_key.p8');
-      privateKeyData = readFileSync(privateKeyPath, 'utf8');
-    } catch (error) {
-      throw new Error(
-        'Snowflake private key not found. Set SNOWFLAKE_PRIVATE_KEY environment variable or ensure .snowflake-keys/rsa_key.p8 exists locally.'
-      );
-    }
+    console.log("[Snowflake] Using private key from file (local development)");
+    const { readFileSync } = require("fs");
+    const { join } = require("path");
+    const pemKey = readFileSync(
+      join(process.cwd(), ".snowflake-keys", "rsa_key.p8"),
+      "utf8"
+    );
+    privateKey = crypto.createPrivateKey({
+      key: pemKey,
+      format: "pem",
+      type: "pkcs8",
+    });
   }
 
   const connection = snowflake.createConnection({
     account: config.account,
     username: config.username,
-    authenticator: 'SNOWFLAKE_JWT',
-    privateKey: privateKeyData,
+    authenticator: "SNOWFLAKE_JWT",
+    privateKey: privateKey as any,
     warehouse: config.warehouse,
   });
 
@@ -85,7 +90,7 @@ async function executeSnowflakeQuery(
 
     connection.connect((err, conn) => {
       if (err) {
-        console.error('Connection error:', err);
+        console.error("Connection error:", err);
         return resolve({ data: null, error: err });
       }
 
@@ -96,12 +101,12 @@ async function executeSnowflakeQuery(
           // Always destroy connection after query
           connection.destroy((destroyErr) => {
             if (destroyErr) {
-              console.error('Error destroying connection:', destroyErr);
+              console.error("Error destroying connection:", destroyErr);
             }
           });
 
           if (err) {
-            console.error('Query error:', err);
+            console.error("Query error:", err);
             return resolve({ data: null, error: err });
           }
 
@@ -117,7 +122,12 @@ async function executeSnowflakeQuery(
  * Supports Claude, Mistral, Llama models
  */
 export async function cortexComplete(
-  model: 'claude-3-5-sonnet' | 'mistral-large' | 'mistral-7b' | 'llama3-70b' | 'mixtral-8x7b',
+  model:
+    | "claude-3-5-sonnet"
+    | "mistral-large"
+    | "mistral-7b"
+    | "llama3-70b"
+    | "mixtral-8x7b",
   prompt: string,
   options?: {
     temperature?: number;
@@ -139,7 +149,7 @@ export async function cortexComplete(
     const completion = data?.[0]?.COMPLETION || null;
     return { completion, error: null };
   } catch (error) {
-    console.error('Cortex COMPLETE error:', error);
+    console.error("Cortex COMPLETE error:", error);
     return { completion: null, error: error as Error };
   }
 }
@@ -165,7 +175,7 @@ export async function cortexSentiment(
     const sentiment = data?.[0]?.SENTIMENT || null;
     return { sentiment, error: null };
   } catch (error) {
-    console.error('Cortex SENTIMENT error:', error);
+    console.error("Cortex SENTIMENT error:", error);
     return { sentiment: null, error: error as Error };
   }
 }
@@ -177,9 +187,13 @@ export async function cortexSentiment(
 export async function cortexClassify(
   text: string,
   categories: string[]
-): Promise<{ category: string | null; confidence: number | null; error: Error | null }> {
+): Promise<{
+  category: string | null;
+  confidence: number | null;
+  error: Error | null;
+}> {
   try {
-    const categoriesStr = categories.map(c => `'${c}'`).join(', ');
+    const categoriesStr = categories.map((c) => `'${c}'`).join(", ");
 
     const query = `
       SELECT SNOWFLAKE.CORTEX.CLASSIFY_TEXT(
@@ -201,7 +215,7 @@ export async function cortexClassify(
     }
 
     // Parse result (format: {"category": "...", "confidence": ...})
-    const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+    const parsed = typeof result === "string" ? JSON.parse(result) : result;
 
     return {
       category: parsed.category,
@@ -209,7 +223,7 @@ export async function cortexClassify(
       error: null,
     };
   } catch (error) {
-    console.error('Cortex CLASSIFY_TEXT error:', error);
+    console.error("Cortex CLASSIFY_TEXT error:", error);
     return { category: null, confidence: null, error: error as Error };
   }
 }
@@ -234,7 +248,7 @@ export async function cortexSummarize(
     const summary = data?.[0]?.SUMMARY || null;
     return { summary, error: null };
   } catch (error) {
-    console.error('Cortex SUMMARIZE error:', error);
+    console.error("Cortex SUMMARIZE error:", error);
     return { summary: null, error: error as Error };
   }
 }
@@ -242,9 +256,12 @@ export async function cortexSummarize(
 /**
  * Health check for Snowflake connection
  */
-export async function healthCheck(): Promise<{ healthy: boolean; error: Error | null }> {
+export async function healthCheck(): Promise<{
+  healthy: boolean;
+  error: Error | null;
+}> {
   try {
-    const { data, error } = await executeSnowflakeQuery('SELECT 1 AS test;');
+    const { data, error } = await executeSnowflakeQuery("SELECT 1 AS test;");
 
     if (error) {
       return { healthy: false, error };
@@ -252,7 +269,7 @@ export async function healthCheck(): Promise<{ healthy: boolean; error: Error | 
 
     return { healthy: true, error: null };
   } catch (error) {
-    console.error('Snowflake health check failed:', error);
+    console.error("Snowflake health check failed:", error);
     return { healthy: false, error: error as Error };
   }
 }
@@ -268,7 +285,7 @@ export async function testCortexAvailability(): Promise<{
   try {
     // Test with a simple prompt using mistral-7b (smaller, faster model)
     const { completion, error } = await cortexComplete(
-      'mistral-7b',
+      "mistral-7b",
       'Say "OK"'
     );
 
@@ -278,11 +295,17 @@ export async function testCortexAvailability(): Promise<{
 
     return {
       available: true,
-      models: ['claude-3-5-sonnet', 'mistral-large', 'mistral-7b', 'llama3-70b', 'mixtral-8x7b'],
+      models: [
+        "claude-3-5-sonnet",
+        "mistral-large",
+        "mistral-7b",
+        "llama3-70b",
+        "mixtral-8x7b",
+      ],
       error: null,
     };
   } catch (error) {
-    console.error('Cortex availability test failed:', error);
+    console.error("Cortex availability test failed:", error);
     return { available: false, models: [], error: error as Error };
   }
 }
