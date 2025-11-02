@@ -1,12 +1,19 @@
 /**
  * Snowflake Cortex API Client
- * Uses Snowflake's SQL API to execute CORTEX AI functions
+ * Uses Snowflake Node.js SDK with keypair authentication
  */
+
+import snowflake from 'snowflake-sdk';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 interface SnowflakeConfig {
   account: string;
-  apiEndpoint: string;
-  jwtToken: string;
+  username: string;
+  privateKeyPath: string;
+  warehouse?: string;
+  database?: string;
+  schema?: string;
 }
 
 /**
@@ -14,14 +21,42 @@ interface SnowflakeConfig {
  */
 function getSnowflakeConfig(): SnowflakeConfig {
   const account = process.env.SNOWFLAKE_ACCOUNT;
-  const apiEndpoint = process.env.SNOWFLAKE_API_ENDPOINT;
-  const jwtToken = process.env.SNOWFLAKE_JWT_TOKEN;
+  const username = process.env.SNOWFLAKE_USERNAME || 'ZAINEEL';
+  const warehouse = process.env.SNOWFLAKE_WAREHOUSE || 'COMPUTE_WH';
 
-  if (!account || !apiEndpoint || !jwtToken) {
-    throw new Error('Missing Snowflake environment variables. Check SNOWFLAKE_ACCOUNT, SNOWFLAKE_API_ENDPOINT, and SNOWFLAKE_JWT_TOKEN');
+  if (!account) {
+    throw new Error('Missing SNOWFLAKE_ACCOUNT environment variable');
   }
 
-  return { account, apiEndpoint, jwtToken };
+  // Private key path
+  const privateKeyPath = join(process.cwd(), '.snowflake-keys', 'rsa_key.p8');
+
+  return {
+    account,
+    username,
+    privateKeyPath,
+    warehouse,
+  };
+}
+
+/**
+ * Create Snowflake connection with keypair authentication
+ */
+function createConnection(): snowflake.Connection {
+  const config = getSnowflakeConfig();
+
+  // Read private key
+  const privateKeyData = readFileSync(config.privateKeyPath, 'utf8');
+
+  const connection = snowflake.createConnection({
+    account: config.account,
+    username: config.username,
+    authenticator: 'SNOWFLAKE_JWT',
+    privateKey: privateKeyData,
+    warehouse: config.warehouse,
+  });
+
+  return connection;
 }
 
 /**
@@ -29,78 +64,38 @@ function getSnowflakeConfig(): SnowflakeConfig {
  */
 async function executeSnowflakeQuery(
   query: string,
-  bindings?: Record<string, any>
+  bindings?: any[]
 ): Promise<{ data: any; error: Error | null }> {
-  try {
-    const config = getSnowflakeConfig();
+  return new Promise((resolve) => {
+    const connection = createConnection();
 
-    const response = await fetch(`${config.apiEndpoint}/api/v2/statements`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.jwtToken}`,
-        'X-Snowflake-Authorization-Token-Type': 'KEYPAIR_JWT',
-      },
-      body: JSON.stringify({
-        statement: query,
-        timeout: 60,
-        bindings,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Snowflake API error: ${response.status} ${errorText}`);
-    }
-
-    const result = await response.json();
-
-    // Handle async execution
-    if (result.statementHandle) {
-      // Poll for results
-      const data = await pollForResults(result.statementHandle);
-      return { data, error: null };
-    }
-
-    return { data: result.data, error: null };
-  } catch (error) {
-    console.error('Snowflake query error:', error);
-    return { data: null, error: error as Error };
-  }
-}
-
-/**
- * Poll for async query results
- */
-async function pollForResults(statementHandle: string, maxAttempts: number = 30): Promise<any> {
-  const config = getSnowflakeConfig();
-
-  for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(
-      `${config.apiEndpoint}/api/v2/statements/${statementHandle}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${config.jwtToken}`,
-          'X-Snowflake-Authorization-Token-Type': 'KEYPAIR_JWT',
-        },
+    connection.connect((err, conn) => {
+      if (err) {
+        console.error('Connection error:', err);
+        return resolve({ data: null, error: err });
       }
-    );
 
-    const result = await response.json();
+      conn.execute({
+        sqlText: query,
+        binds: bindings,
+        complete: (err, stmt, rows) => {
+          // Always destroy connection after query
+          connection.destroy((destroyErr) => {
+            if (destroyErr) {
+              console.error('Error destroying connection:', destroyErr);
+            }
+          });
 
-    if (result.status === 'success') {
-      return result.data;
-    }
+          if (err) {
+            console.error('Query error:', err);
+            return resolve({ data: null, error: err });
+          }
 
-    if (result.status === 'failed') {
-      throw new Error(`Query failed: ${result.message}`);
-    }
-
-    // Wait 2 seconds before next poll
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-
-  throw new Error('Query timeout: Results not ready after 60 seconds');
+          resolve({ data: rows, error: null });
+        },
+      });
+    });
+  });
 }
 
 /**
@@ -108,7 +103,7 @@ async function pollForResults(statementHandle: string, maxAttempts: number = 30)
  * Supports Claude, Mistral, Llama models
  */
 export async function cortexComplete(
-  model: 'claude-3-5-sonnet' | 'mistral-large' | 'llama3-70b' | 'mixtral-8x7b',
+  model: 'claude-3-5-sonnet' | 'mistral-large' | 'mistral-7b' | 'llama3-70b' | 'mixtral-8x7b',
   prompt: string,
   options?: {
     temperature?: number;
@@ -116,30 +111,18 @@ export async function cortexComplete(
   }
 ): Promise<{ completion: string | null; error: Error | null }> {
   try {
-    const temperature = options?.temperature ?? 0.7;
-    const maxTokens = options?.maxTokens ?? 2000;
-
-    // Using Snowflake Cortex COMPLETE function
+    // Simplified syntax - just model and prompt as string
     const query = `
-      SELECT SNOWFLAKE.CORTEX.COMPLETE(
-        '${model}',
-        [
-          {'role': 'user', 'content': :prompt}
-        ],
-        {
-          'temperature': ${temperature},
-          'max_tokens': ${maxTokens}
-        }
-      ) AS completion;
+      SELECT SNOWFLAKE.CORTEX.COMPLETE(?, ?) AS completion;
     `;
 
-    const { data, error } = await executeSnowflakeQuery(query, { prompt });
+    const { data, error } = await executeSnowflakeQuery(query, [model, prompt]);
 
     if (error) {
       return { completion: null, error };
     }
 
-    const completion = data?.[0]?.[0] || null;
+    const completion = data?.[0]?.COMPLETION || null;
     return { completion, error: null };
   } catch (error) {
     console.error('Cortex COMPLETE error:', error);
@@ -156,16 +139,16 @@ export async function cortexSentiment(
 ): Promise<{ sentiment: number | null; error: Error | null }> {
   try {
     const query = `
-      SELECT SNOWFLAKE.CORTEX.SENTIMENT(:text) AS sentiment;
+      SELECT SNOWFLAKE.CORTEX.SENTIMENT(?) AS sentiment;
     `;
 
-    const { data, error } = await executeSnowflakeQuery(query, { text });
+    const { data, error } = await executeSnowflakeQuery(query, [text]);
 
     if (error) {
       return { sentiment: null, error };
     }
 
-    const sentiment = data?.[0]?.[0] || null;
+    const sentiment = data?.[0]?.SENTIMENT || null;
     return { sentiment, error: null };
   } catch (error) {
     console.error('Cortex SENTIMENT error:', error);
@@ -186,18 +169,18 @@ export async function cortexClassify(
 
     const query = `
       SELECT SNOWFLAKE.CORTEX.CLASSIFY_TEXT(
-        :text,
+        ?,
         ARRAY_CONSTRUCT(${categoriesStr})
       ) AS result;
     `;
 
-    const { data, error } = await executeSnowflakeQuery(query, { text });
+    const { data, error } = await executeSnowflakeQuery(query, [text]);
 
     if (error) {
       return { category: null, confidence: null, error };
     }
 
-    const result = data?.[0]?.[0];
+    const result = data?.[0]?.RESULT;
 
     if (!result) {
       return { category: null, confidence: null, error: null };
@@ -225,16 +208,16 @@ export async function cortexSummarize(
 ): Promise<{ summary: string | null; error: Error | null }> {
   try {
     const query = `
-      SELECT SNOWFLAKE.CORTEX.SUMMARIZE(:text) AS summary;
+      SELECT SNOWFLAKE.CORTEX.SUMMARIZE(?) AS summary;
     `;
 
-    const { data, error } = await executeSnowflakeQuery(query, { text });
+    const { data, error } = await executeSnowflakeQuery(query, [text]);
 
     if (error) {
       return { summary: null, error };
     }
 
-    const summary = data?.[0]?.[0] || null;
+    const summary = data?.[0]?.SUMMARY || null;
     return { summary, error: null };
   } catch (error) {
     console.error('Cortex SUMMARIZE error:', error);
@@ -269,11 +252,10 @@ export async function testCortexAvailability(): Promise<{
   error: Error | null;
 }> {
   try {
-    // Test with a simple prompt
+    // Test with a simple prompt using mistral-7b (smaller, faster model)
     const { completion, error } = await cortexComplete(
-      'mistral-large',
-      'Say "OK" if you can read this.',
-      { temperature: 0, maxTokens: 10 }
+      'mistral-7b',
+      'Say "OK"'
     );
 
     if (error) {
@@ -282,7 +264,7 @@ export async function testCortexAvailability(): Promise<{
 
     return {
       available: true,
-      models: ['claude-3-5-sonnet', 'mistral-large', 'llama3-70b', 'mixtral-8x7b'],
+      models: ['claude-3-5-sonnet', 'mistral-large', 'mistral-7b', 'llama3-70b', 'mixtral-8x7b'],
       error: null,
     };
   } catch (error) {
