@@ -45,8 +45,16 @@ function getSnowflakeConfig(): SnowflakeConfig {
 function createConnection(): snowflake.Connection {
   const config = getSnowflakeConfig();
 
-  // Read private key
-  const privateKeyData = readFileSync(config.privateKeyPath, 'utf8');
+  // Read private key from environment variable (production) or file (local)
+  let privateKeyData: string;
+
+  if (process.env.SNOWFLAKE_PRIVATE_KEY) {
+    // Production: Read from environment variable
+    privateKeyData = process.env.SNOWFLAKE_PRIVATE_KEY;
+  } else {
+    // Local development: Read from file
+    privateKeyData = readFileSync(config.privateKeyPath, 'utf8');
+  }
 
   const connection = snowflake.createConnection({
     account: config.account,
