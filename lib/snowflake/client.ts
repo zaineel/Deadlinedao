@@ -4,7 +4,6 @@
  */
 
 import snowflake from "snowflake-sdk";
-import crypto from "crypto";
 
 interface SnowflakeConfig {
   account: string;
@@ -33,7 +32,7 @@ function getSnowflakeConfig(): SnowflakeConfig {
  */
 function createConnection(): snowflake.Connection {
   const config = getSnowflakeConfig();
-  let privateKey: crypto.KeyObject;
+  let privateKeyPem: string;
 
   try {
     if (process.env.SNOWFLAKE_PRIVATE_KEY) {
@@ -49,28 +48,15 @@ function createConnection(): snowflake.Connection {
       }
 
       console.log("[Snowflake] Decoded PEM key successfully");
-
-      privateKey = crypto.createPrivateKey({
-        key: pemKey,
-        format: "pem",
-        type: "pkcs8",
-      });
-
-      console.log("[Snowflake] ✅ Private key created successfully");
+      privateKeyPem = pemKey;
     } else {
       console.log("[Snowflake] Using local .p8 key");
       const fs = require("fs");
       const path = require("path");
-      const pem = fs.readFileSync(
+      privateKeyPem = fs.readFileSync(
         path.join(process.cwd(), ".snowflake-keys", "rsa_key.p8"),
         "utf8"
       );
-
-      privateKey = crypto.createPrivateKey({
-        key: pem,
-        format: "pem",
-        type: "pkcs8",
-      });
     }
   } catch (err) {
     console.error("[Snowflake] Failed to read or parse private key:", err);
@@ -81,7 +67,7 @@ function createConnection(): snowflake.Connection {
     account: config.account,
     username: config.username,
     authenticator: "SNOWFLAKE_JWT",
-    privateKey: privateKey as any,
+    privateKey: privateKeyPem,
     warehouse: config.warehouse,
   });
 
