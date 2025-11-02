@@ -39,17 +39,24 @@ function createConnection(): snowflake.Connection {
     if (process.env.SNOWFLAKE_PRIVATE_KEY) {
       console.log("[Snowflake] Using private key from environment variable");
 
-      // Decode back to UTF-8 PEM string
-      const pemKey = Buffer.from(
-        process.env.SNOWFLAKE_PRIVATE_KEY.trim().replace(/\s+/g, ""),
-        "base64"
-      ).toString("utf8");
+      // Clean the base64 string and decode
+      const base64Key = process.env.SNOWFLAKE_PRIVATE_KEY.replace(/\s+/g, "");
+      const pemKey = Buffer.from(base64Key, "base64").toString("utf8");
+
+      // Verify it looks like a PEM key
+      if (!pemKey.includes("-----BEGIN PRIVATE KEY-----")) {
+        throw new Error("Decoded key does not appear to be a valid PEM format");
+      }
+
+      console.log("[Snowflake] Decoded PEM key successfully");
 
       privateKey = crypto.createPrivateKey({
         key: pemKey,
-        format: "pem", // ✅ it’s actually PEM text, not DER
+        format: "pem",
         type: "pkcs8",
       });
+
+      console.log("[Snowflake] ✅ Private key created successfully");
     } else {
       console.log("[Snowflake] Using local .p8 key");
       const fs = require("fs");
@@ -74,7 +81,7 @@ function createConnection(): snowflake.Connection {
     account: config.account,
     username: config.username,
     authenticator: "SNOWFLAKE_JWT",
-    privateKey: privateKey as any, // TS expects string; runtime accepts KeyObject
+    privateKey: privateKey as any,
     warehouse: config.warehouse,
   });
 
