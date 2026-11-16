@@ -15,6 +15,7 @@ const m = vi.hoisted(() => ({
   claimPayout: vi.fn(),
   finalizePayout: vi.fn(),
   releasePayout: vi.fn(),
+  markPayoutUnconfirmed: vi.fn(),
   sendPayoutFromEscrow: vi.fn(),
   notify: vi.fn(),
 }));
@@ -36,6 +37,7 @@ vi.mock('@/lib/supabase/payouts', () => ({
   claimPayout: m.claimPayout,
   finalizePayout: m.finalizePayout,
   releasePayout: m.releasePayout,
+  markPayoutUnconfirmed: m.markPayoutUnconfirmed,
 }));
 vi.mock('@/lib/solana/escrow', () => ({
   verifyStakeTransaction: m.verifyStakeTransaction,
@@ -86,7 +88,7 @@ beforeEach(() => {
   m.finalizeDispute.mockResolvedValue({ finalized: true, error: null });
   m.returnStake.mockResolvedValue({ status: 'sent', signature: 'stakeSig', amount: 2 });
   m.claimPayout.mockResolvedValue({ claimed: true, payoutId: 'pay1', error: null });
-  m.sendPayoutFromEscrow.mockResolvedValue({ signature: 'bondSig', error: null });
+  m.sendPayoutFromEscrow.mockResolvedValue({ signature: 'bondSig', error: null, ambiguous: false });
   m.notify.mockResolvedValue({});
 });
 
@@ -261,6 +263,21 @@ describe('resolveDispute', () => {
     expect(r).toEqual({ status: 'resolved', outcome: 'overturned', stakeSignature: undefined, bondSignature: undefined });
     expect(m.transitionGoalStatus).not.toHaveBeenCalled();
     expect(m.sendPayoutFromEscrow).not.toHaveBeenCalled();
+  });
+
+  it('stake return unconfirmed: keeps the dispute open, does not refund the bond', async () => {
+    m.returnStake.mockResolvedValue({ status: 'unconfirmed', amount: 2, signature: 'sig' });
+    expect(await resolveDispute('d1', 'overturn')).toEqual({ status: 'payout_unconfirmed' });
+    expect(m.claimPayout).not.toHaveBeenCalled();
+    expect(m.finalizeDispute).not.toHaveBeenCalled();
+  });
+
+  it('bond refund ambiguous: keeps the claim (never releases), marks it unconfirmed, dispute stays open', async () => {
+    m.sendPayoutFromEscrow.mockResolvedValue({ signature: 'sigX', error: new Error('timeout'), ambiguous: true });
+    expect(await resolveDispute('d1', 'overturn')).toEqual({ status: 'payout_unconfirmed' });
+    expect(m.releasePayout).not.toHaveBeenCalled();
+    expect(m.markPayoutUnconfirmed).toHaveBeenCalledWith('pay1', 'sigX');
+    expect(m.finalizeDispute).not.toHaveBeenCalled();
   });
 
   it('only the caller that finalized the dispute notifies', async () => {

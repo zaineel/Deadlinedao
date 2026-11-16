@@ -9,6 +9,7 @@ export type ResolveResult =
   | { status: 'not_found' }
   | { status: 'noop'; reason: 'already_resolved' | 'goal_not_disputed'; disputeStatus: DisputeStatus }
   | { status: 'payout_failed' }
+  | { status: 'payout_unconfirmed' }
   | { status: 'error' }
   | {
       status: 'resolved';
@@ -58,6 +59,12 @@ export async function resolveDispute(disputeId: string, decision: ResolveDecisio
       console.error(`[Disputes] stake return failed for goal ${goal.id}; dispute ${dispute.id} stays open`);
       return { status: 'payout_failed' };
     }
+    if (stake.status === 'unconfirmed') {
+      // The transfer may have landed and the claim is kept. Stop here (no bond
+      // refund, dispute stays open); reconcile the payout, then retry.
+      console.error(`[Disputes] stake return unconfirmed for goal ${goal.id}; dispute ${dispute.id} stays open`);
+      return { status: 'payout_unconfirmed' };
+    }
     if (stake.status === 'sent') stakeSignature = stake.signature;
   }
 
@@ -66,6 +73,10 @@ export async function resolveDispute(disputeId: string, decision: ResolveDecisio
     if (refund.status === 'failed') {
       console.error(`[Disputes] bond refund failed for goal ${goal.id}; dispute ${dispute.id} stays open`);
       return { status: 'payout_failed' };
+    }
+    if (refund.status === 'unconfirmed') {
+      console.error(`[Disputes] bond refund unconfirmed for goal ${goal.id}; dispute ${dispute.id} stays open`);
+      return { status: 'payout_unconfirmed' };
     }
     if (refund.status === 'sent') bondSignature = refund.signature;
   }

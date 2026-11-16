@@ -91,6 +91,14 @@ export async function POST(request: NextRequest) {
           { error: 'A payout failed; the dispute is still open. Try again.' },
           { status: 502 }
         );
+      case 'payout_unconfirmed':
+        return NextResponse.json(
+          {
+            error:
+              'A payout may have been sent but is not confirmed. The dispute stays open: reconcile via /api/admin/payouts/reconcile, then retry.',
+          },
+          { status: 202 }
+        );
       case 'resolved':
         return NextResponse.json({
           success: true,
