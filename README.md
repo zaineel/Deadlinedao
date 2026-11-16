@@ -111,6 +111,13 @@ Helper scripts live in `scripts/` and run with `npx tsx scripts/<name>.ts` (escr
 
 See [docs/designs/roadmap.md](docs/designs/roadmap.md).
 
-## Other docs
+## Docs
 
-The repo also contains older hackathon-era guides in the root (`SETUP_GUIDE.md`, `API.md`, demo checklists, etc.). They may be out of date; this README takes precedence.
+- [docs/setup.md](docs/setup.md): accounts and environment (Solana devnet, Supabase, R2)
+- [docs/snowflake.md](docs/snowflake.md): Snowflake Cortex key-pair setup
+- [docs/payouts.md](docs/payouts.md): two-phase payouts, claim-before-send, unconfirmed payouts and reconcile
+- [docs/admin.md](docs/admin.md): admin page, review queue, reward runs, crons
+- [docs/api.md](docs/api.md): every API route with auth, flag and request/response shape
+- [docs/demo.md](docs/demo.md): demo script and checklist (demo mode must stay off in production)
+- [scripts/README.md](scripts/README.md): developer scripts
+- Feature docs in [docs/features/](docs/features/) and designs in [docs/designs/](docs/designs/)

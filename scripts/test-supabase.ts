@@ -1,6 +1,6 @@
 /**
  * Test script to verify Supabase integration
- * Run with: npm run test:supabase
+ * Run with: npx tsx scripts/test-supabase.ts
  */
 
 // Load environment variables FIRST, before any imports
