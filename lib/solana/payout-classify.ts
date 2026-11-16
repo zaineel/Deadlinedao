@@ -53,10 +53,12 @@ export function parseUnconfirmed(txSignature: string): string | null {
 }
 
 /**
- * Blockhashes are valid ~150 slots (~1-2 min). After this long a transaction
+ * Blockhashes are valid ~150 blocks (~1-2 min); age is measured from the claim,
+ * which precedes the send by seconds. 15 min leaves a wide margin for RPC lag.
+ * After this long a transaction
  * that is still unknown to the cluster can never land.
  */
-export const BLOCKHASH_EXPIRY_MS = 5 * 60_000;
+export const BLOCKHASH_EXPIRY_MS = 15 * 60_000;
 /** Do not touch 'pending' rows younger than this: the original request may still be running. */
 export const PENDING_GRACE_MS = 2 * 60_000;
 
