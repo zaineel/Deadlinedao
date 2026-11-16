@@ -120,6 +120,7 @@ export function createApiClient(opts: ApiClientOptions) {
     /** POST /api/push/register (behind FEATURE_PUSH). Unavailable when the flag is off. */
     registerPush: (input: PushRegisterInput) =>
       optional(() => request<{ success?: boolean }>('POST', '/api/push/register', { json: input })),
+    /** Generic authenticated request, exposed for the per-feature API modules (src/api/<feature>.ts). */
     request,
   };
 }

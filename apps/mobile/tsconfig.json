@@ -5,5 +5,5 @@
     "types": ["node"]
   },
   "include": ["app/**/*", "src/**/*", "tests/**/*", "*.ts", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules", "tests/drift.test.ts"]
+  "exclude": ["node_modules", "tests/*drift.test.ts"]
 }

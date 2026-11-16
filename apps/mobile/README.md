@@ -72,6 +72,13 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
 
+## Dashboard, appeals and sharing
+
+- `app/index.tsx` is the dashboard (stats, status badges with appeal countdowns, pull-to-refresh). Teams / Organizations / Governance tiles and `app/more.tsx` entries only show when `GET /api/features` reports them on (`src/features/use-features.ts`; fails closed).
+- Appeals (`app/disputes/[goalId].tsx`, `src/disputes/appeal-flow.ts`): for a `rejected_appealable` goal the app builds the 5% bond transfer to the server `escrowAddress` locally (`src/solana/transfer.ts`, byte-checked against `@solana/web3.js` in `tests/disputes-drift.test.ts`), Phantom signs, the app broadcasts, then POSTs `/api/disputes` with `{goalId, reason, bondSignature}`.
+- Sharing completed goals uses `POST /api/goals/share` (push flag) and the native share sheet with `/p/<id>`.
+- Push registration only runs when the push flag is on and is a no-op in Expo Go.
+
 ## Teams and organizations
 
 Screens: `app/teams/*` (list, create, join with `?code=`, detail with progress and leaderboard, create team goal) and `app/orgs/*` (list, join with `?code=`, detail). API modules: `src/api/teams.ts`, `src/api/orgs.ts`. Members stake on a team goal through the server-built escrow transfer (Phantom signs, the app broadcasts, then `/api/goals/confirm`). Org admins fund the pool with a locally built SOL transfer to the escrow (`src/orgs/funding-tx.ts`, byte-checked against `@solana/web3.js` in tests); the server verifies and credits it. Aggregate stats stay hidden below 5 consenting members, and admin actions only appear for org admins.
