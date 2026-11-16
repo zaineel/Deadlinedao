@@ -76,18 +76,6 @@ export async function GET() {
           },
         },
       },
-      upload: {
-        presigned: {
-          path: '/api/upload/presigned',
-          method: 'POST',
-          description: 'Get presigned URL for direct R2 upload',
-          body: {
-            filename: 'string',
-            goal_id: 'string (UUID)',
-            user_id: 'string',
-          },
-        },
-      },
       analytics: {
         platform: {
           path: '/api/analytics/platform',
@@ -132,7 +120,7 @@ export async function GET() {
       storage: {
         provider: 'Cloudflare R2',
         features: [
-          'Direct client uploads (presigned URLs)',
+          'Server-side uploads (JPEG/PNG, 10MB max)',
           'Image validation',
           'Automatic cleanup',
         ],

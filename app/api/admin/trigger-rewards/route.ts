@@ -3,6 +3,7 @@ import { getAllGoals } from '@/lib/supabase';
 import { computeRewardPayouts, sendPayoutFromEscrow } from '@/lib/solana';
 import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase';
 import { requireAdmin } from '@/lib/auth/admin';
+import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
 import { z } from 'zod';
 
@@ -63,15 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Filter goals by deadline (matching the date only, ignoring time)
-    const targetDate = new Date(deadline);
-    const goalsWithDeadline = allGoals.filter(goal => {
-      const goalDeadline = new Date(goal.deadline);
-      return (
-        goalDeadline.getFullYear() === targetDate.getFullYear() &&
-        goalDeadline.getMonth() === targetDate.getMonth() &&
-        goalDeadline.getDate() === targetDate.getDate()
-      );
-    });
+    const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
     console.log(`[Admin] Found ${goalsWithDeadline.length} goals with deadline ${deadline}`);
 
@@ -239,15 +232,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter goals by deadline
-    const targetDate = new Date(deadline);
-    const goalsWithDeadline = allGoals.filter(goal => {
-      const goalDeadline = new Date(goal.deadline);
-      return (
-        goalDeadline.getFullYear() === targetDate.getFullYear() &&
-        goalDeadline.getMonth() === targetDate.getMonth() &&
-        goalDeadline.getDate() === targetDate.getDate()
-      );
-    });
+    const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
     // Separate by status
     const completedGoals = goalsWithDeadline.filter(g => g.status === 'completed');
