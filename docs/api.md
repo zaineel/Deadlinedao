@@ -20,7 +20,7 @@ Types: `uuid` is a UUID string; `wallet` is a base58 Solana address; `lamports` 
 
 ## Sign-in (wallet sessions)
 
-Sessions are needed by the disputes, orgs and push features and by `GET /api/proofs`.
+Sessions are needed by the disputes, teams, orgs and push features and by `GET /api/proofs`.
 
 | Route | Auth | Body | Response |
 | --- | --- | --- | --- |
@@ -64,12 +64,13 @@ Sessions are needed by the disputes, orgs and push features and by `GET /api/pro
 | Route | Request | Response |
 | --- | --- | --- |
 | `GET /api/admin/trigger-rewards?deadline=YYYY-MM-DD` | `deadline` query | Preview: `{preview:true, deadline, stats, distribution[], canDistribute, pendingAppeals, note}` |
-| `POST /api/admin/trigger-rewards` | `{deadline: 'YYYY-MM-DD'}` | Runs Phase 2. `{success, message, stats, distribution:{successfulPayouts, alreadyDistributed, failedPayouts, unconfirmedPayouts, ...}, rewards[], errors, solanaExplorer[]}`. 409 while appeals are unsettled. Idempotent (claim-before-send). |
+| `POST /api/admin/trigger-rewards` | `{deadline: 'YYYY-MM-DD'}` | Runs Phase 2. `{success, message, stats, distribution:{successfulPayouts, alreadyDistributed, failedPayouts, unconfirmedPayouts, ...}, rewards[], errors, solanaExplorer[]}`. 409 while appeals are unsettled (or, with `teams` on, team goals for that day are unsettled). Idempotent (claim-before-send). |
 | `GET /api/admin/review` | | `{success, count, items:[{goal, proof}]}` goals awaiting manual review with the AI verdict |
 | `POST /api/admin/review` | `{goalId, decision:'approve'|'reject'}` | approve: `{success, goalId, status:'completed', payout}` (202 if unconfirmed, 502 if the transfer failed and the goal returned to the queue); reject: `{success, goalId, status:'failed'}`. 404 unknown, 409 not awaiting review or already processed. |
 | `POST /api/admin/payouts/reconcile` | optional `{payoutId?: uuid}` (strict) | `{success, checked, finalized, released, waiting, manual, errors, outcomes[]}` |
 | `GET /api/admin/disputes` | (flag `disputes`) | `{success, count, items}` open disputes |
 | `POST /api/admin/disputes` | (flag `disputes`) `{disputeId, decision:'overturn'|'uphold'}` | resolves an appeal; no-op if already resolved |
+| `POST /api/admin/team-settlement` | (flag `teams`) see Teams below | |
 | `POST /api/admin/org-matches` | (flag `orgs`) none | `{success, summary}` runs the sponsor-match sweep |
 
 ## Disputes (flag `disputes`)
@@ -115,6 +116,22 @@ Scheduled in `vercel.json`; see `docs/admin.md`.
 | `/api/cron/deadline-reminders` | `push` | `{success, due, sent, skipped}` |
 | `/api/cron/org-matches` | `orgs` | `{success, summary}` |
 
+## Teams (flag `teams`, session auth)
+
+Teams stake together; failed members' stakes go to teammates who completed, before the global pool. See `docs/features/teams.md`. Non-members get the same 404 as a missing team.
+
+| Route | Rate limit | Request | Response |
+| --- | --- | --- | --- |
+| `POST /api/teams` | 10/min | `{name(1-60)}` | 201 `{success, team}`; the caller becomes owner |
+| `GET /api/teams` | | | `{success, teams}` the caller belongs to |
+| `POST /api/teams/join` | 10/min | `{inviteCode}` | `{success, teamId, name}`; 404 invalid code, 409 team full or already a member |
+| `GET /api/teams/[id]` | | | Members only: `{success, team:{id, name, owner_wallet, invite_code, created_at}, isOwner, members[], goals[]}`; each goal has per-member `progress` and `myGoalId` |
+| `POST /api/team-goals` | 10/min | owner only: `{teamId, title(1-100), description(1-1000), category, deadline(future), stakePerMember(>0, <=1000, 4 dp)}` | 201 `{success, teamGoal}`; 404 if not found or not the owner |
+| `POST /api/team-goals/[id]/join` | 10/min | none | A member stakes: creates their goal (`pending_validation`) and returns `{success, goalId, transaction(unsigned), escrowAddress, message}`; then confirm via `POST /api/goals/confirm`. Repeating before confirming re-issues the transaction. Demo mode: `{success, goalId, demoMode:true}`. 409 closed, past deadline or already staked |
+| `POST /api/admin/team-settlement` | admin key | `{teamGoalId, dryRun?}` | Pays `team_reward` payouts to completers from failed members' stakes. `{success, dryRun, settled, teamPool, distributed, remainderToGlobal, planned, outcomes[], message}`. 409 before the deadline or while member goals are not final; 404 unknown. Idempotent. The remainder is recorded once and joins the global pool for that deadline day |
+
+`POST /api/admin/trigger-rewards` (above) answers 409 `unsettledTeamGoalIds` until every team goal for that day is settled, and its preview adds `teamRemainder` and `unsettledTeamGoalIds`. `GET /api/prize-pool` also includes the team remainder when the flag is on.
+
 ## Not present
 
-There are no team routes on `main` (the `teams` flag exists in `lib/config/features.ts` but no route uses it yet), and there is no `/api/upload/presigned`.
+There is no `/api/upload/presigned` (use `POST /api/upload/proof`), and no governance routes: the `governance` flag exists in `lib/config/features.ts` but no route uses it.

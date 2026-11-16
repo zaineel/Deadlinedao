@@ -9,7 +9,7 @@ Page: `app/admin/page.tsx`, with `components/admin/ReviewQueue.tsx` and `compone
 On `/admin`:
 
 1. Enter the admin key, pick a deadline date (UTC day, `YYYY-MM-DD`).
-2. **Preview** (`GET /api/admin/trigger-rewards?deadline=...`): totals for completed, failed and active goals, each winner's stake, share and reward, and whether it can run. It cannot run while appeals are pending, or if there are no winners or no failed stakes.
+2. **Preview** (`GET /api/admin/trigger-rewards?deadline=...`): totals for completed, failed and active goals, each winner's stake, share and reward, and whether it can run. It cannot run while appeals are pending, while team goals for that day are unsettled (`FEATURE_TEAMS`), or if there are no winners or no failed stakes.
 3. **Distribute rewards** (`POST /api/admin/trigger-rewards`): sends the rewards and shows each payout with a devnet explorer link. Status per winner is `success`, `already_distributed`, `unconfirmed` or `failed`.
 
 Re-running is safe. Details and failure handling are in [payouts.md](./payouts.md).
@@ -42,6 +42,10 @@ The response counts `finalized`, `released`, `waiting`, `manual` and `errors` an
 ## Editing goals
 
 `PUT /api/goals/[id]` (admin key) sets a goal's status directly (`active`, `pending_validation`, `completed`, `failed`). It bypasses the payout flow: it moves no money and does not return stakes. Prefer the review queue.
+
+## Team settlement (`FEATURE_TEAMS=true`)
+
+After a team goal's deadline and once every staked member goal is completed or failed, `POST /api/admin/team-settlement {teamGoalId, dryRun?}` pays failed members' stakes to teammates who completed. Use `dryRun: true` first. Re-running is safe; unconfirmed rewards need reconcile, not a retry. Run this before the global reward run for that deadline day. See `docs/features/teams.md`.
 
 ## Org sponsor matches (`FEATURE_ORGS=true`)
 

@@ -21,7 +21,7 @@ Failed stakes for one deadline day are split pro rata among that day's completed
 
 1. Preview: `GET /api/admin/trigger-rewards?deadline=YYYY-MM-DD` returns stats, each winner's reward and `canDistribute`. Deadlines are matched by UTC calendar day.
 2. Run: `POST /api/admin/trigger-rewards {"deadline":"YYYY-MM-DD"}`, or the Distribute button in `/admin`.
-3. It refuses (409) while any goal on that day is still in the appeal window or disputed (`rejected_appealable`, `disputed`), because those stakes are not final. It reports "no completed goals" or "no failed goals" without sending anything.
+3. It refuses (409) while any goal on that day is still in the appeal window or disputed (`rejected_appealable`, `disputed`), because those stakes are not final. With `FEATURE_TEAMS` on it also refuses until every team goal due that day is settled (`POST /api/admin/team-settlement`); team member goals are excluded from the global winner and loser sets, and each settled team goal's recorded remainder (rounding dust, or the whole team pool when nobody completed) is added to that day's pool. It reports "no completed goals" or "no failed goals" without sending anything.
 4. For each winner it claims a `completion_reward` payout, sends, then finalizes. Per-winner status is `success`, `already_distributed`, `unconfirmed` or `failed`.
 5. It is safe to re-run: paid goals come back as `already_distributed`, failed claims were released and are retried, and unconfirmed ones are left alone.
 
@@ -56,7 +56,7 @@ Never retry an unconfirmed payout by hand before reconciling it; that is how dou
 
 ## Other payout types
 
-Dispute bond refunds (`bond_refund`), org sponsor matches (`sponsor_match`) and team rewards (`team_reward`) use the same claim, send, finalize or release flow. See `docs/features/disputes.md` and `docs/features/orgs.md`.
+Dispute bond refunds (`bond_refund`), org sponsor matches (`sponsor_match`) and team rewards (`team_reward`) use the same claim, send, finalize or release flow. See `docs/features/disputes.md`, `docs/features/orgs.md` and `docs/features/teams.md`. Team settlement and dispute resolution can also leave unconfirmed payouts; reconcile them the same way.
 
 ## Inspecting payouts (devnet)
 
