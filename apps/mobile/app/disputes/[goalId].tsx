@@ -18,7 +18,7 @@ import { Body, Button, Card, ErrorText, errorMessage, Field, H1, Screen } from '
 export default function DisputeScreen() {
   const { goalId } = useLocalSearchParams<{ goalId: string }>();
   const { wallet, session, api } = useAuth();
-  const { features } = useFeatures();
+  const { features, loading: featuresLoading } = useFeatures();
   const [params, setParams] = useState<GovernanceParams | null>(null);
   const gov = useMemo(() => createGovernanceApi(api), [api]);
   const panelOn = features?.governance === true;
@@ -104,7 +104,7 @@ export default function DisputeScreen() {
   };
 
   const confirmAndSubmit = () => {
-    if (!quote) return;
+    if (!quote || featuresLoading) return;
     const invalid = validateReason(reason);
     if (invalid) {
       setError(invalid);
@@ -156,7 +156,8 @@ export default function DisputeScreen() {
           </Card>
           <Card>
             <Body>How your appeal is judged</Body>
-            {explainer.map((line) => (
+            {featuresLoading && <Body muted>Loading...</Body>}
+            {!featuresLoading && explainer.map((line) => (
               <Body key={line} muted>
                 {'\u2022 '}
                 {line}
@@ -176,7 +177,7 @@ export default function DisputeScreen() {
             title={`Pay ${quote.bondAmount} SOL bond and appeal`}
             onPress={confirmAndSubmit}
             loading={busy}
-            disabled={left === 'closed'}
+            disabled={left === 'closed' || featuresLoading}
           />
         </>
       )}
