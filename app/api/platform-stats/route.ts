@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
+import { unsettledGoals } from '@/lib/disputes/logic';
 
 /**
  * GET /api/platform-stats
@@ -50,6 +51,7 @@ export async function GET() {
         successRateRaw: successRate,
         completedGoals: completedGoals.length,
         failedGoals: failedGoals.length,
+        pendingAppeals: unsettledGoals(allGoals).length,
         totalUsers,
         totalGoals,
       },

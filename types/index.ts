@@ -1,5 +1,13 @@
 import type { PayoutType } from '@/lib/config/payout-types';
 
+export type GoalStatus =
+  | 'active'
+  | 'pending_validation'
+  | 'completed'
+  | 'failed'
+  | 'rejected_appealable'
+  | 'disputed';
+
 export interface Goal {
   id: string;
   wallet_address: string;
@@ -8,7 +16,9 @@ export interface Goal {
   deadline: string;
   stake_amount: number;
   stake_tx_signature: string;
-  status: 'active' | 'pending_validation' | 'completed' | 'failed';
+  status: GoalStatus;
+  /** Set when status is rejected_appealable: end of the 48h appeal window. */
+  appeal_deadline?: string | null;
   category: 'learning' | 'work' | 'health';
   created_at: string;
   updated_at: string;

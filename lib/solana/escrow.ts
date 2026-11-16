@@ -14,6 +14,7 @@ import {
   confirmTransaction,
   getRecentBlockhash,
 } from './client';
+import { hasEscrowTransfer } from './transfer-check';
 
 /**
  * Escrow wallet management for DeadlineDAO
@@ -54,28 +55,13 @@ export async function verifyStakeTransaction(
       return { valid: false, error: new Error('Transaction failed') };
     }
 
-    // Verify the transaction is a transfer to escrow
-    const instructions = tx.transaction.message.instructions;
-    let foundTransfer = false;
-
-    for (const instruction of instructions) {
-      if ('parsed' in instruction && instruction.program === 'system') {
-        const parsed = instruction.parsed;
-        if (parsed.type === 'transfer') {
-          const info = parsed.info;
-
-          // Verify: from user, to escrow, correct amount
-          if (
-            info.destination === escrowPublicKey.toBase58() &&
-            info.source === userPublicKey &&
-            info.lamports >= solToLamports(expectedAmount)
-          ) {
-            foundTransfer = true;
-            break;
-          }
-        }
-      }
-    }
+    // Verify the transaction is a transfer to escrow: from user, to escrow, correct amount
+    const foundTransfer = hasEscrowTransfer(
+      tx.transaction.message.instructions,
+      escrowPublicKey.toBase58(),
+      userPublicKey,
+      solToLamports(expectedAmount)
+    );
 
     if (!foundTransfer) {
       return {

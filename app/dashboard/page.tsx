@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Target, Calendar, DollarSign, CheckCircle2, Clock, XCircle, Trophy } from 'lucide-react';
 import Link from 'next/link';
+import { AppealModal } from '@/components/disputes/AppealModal';
+import { useDisputes } from '@/components/disputes/useDisputes';
 
 interface Goal {
   id: string;
@@ -20,7 +22,8 @@ interface Goal {
   deadline: string;
   category: string;
   stake_amount: number;
-  status: 'pending_validation' | 'active' | 'completed' | 'failed';
+  status: 'pending_validation' | 'active' | 'completed' | 'failed' | 'rejected_appealable' | 'disputed';
+  appeal_deadline?: string | null;
   created_at: string;
   escrow_wallet: string;
   transaction_signature?: string;
@@ -33,6 +36,8 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [proofModalOpen, setProofModalOpen] = useState(false);
+  const [appealGoal, setAppealGoal] = useState<Goal | null>(null);
+  const disputes = useDisputes(goals);
 
   useEffect(() => {
     if (connected && publicKey) {
@@ -72,6 +77,10 @@ export default function DashboardPage() {
         return <Badge className="bg-red-500 hover:bg-red-600">Failed</Badge>;
       case 'pending_validation':
         return <Badge className="bg-yellow-500 hover:bg-yellow-600">Pending Validation</Badge>;
+      case 'rejected_appealable':
+        return <Badge className="bg-orange-500 hover:bg-orange-600">Rejected (appealable)</Badge>;
+      case 'disputed':
+        return <Badge className="bg-purple-500 hover:bg-purple-600">Under appeal</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
@@ -205,6 +214,48 @@ export default function DashboardPage() {
                               Submit Proof
                             </Button>
                           )}
+                          {disputes.enabled && (() => {
+                            const quote = disputes.appealable.find(a => a.goalId === goal.id);
+                            const dispute = disputes.disputes.find(d => d.goalId === goal.id);
+                            if (goal.status === 'rejected_appealable' && quote) {
+                              const hoursLeft = Math.max(
+                                0,
+                                Math.ceil((new Date(quote.appealDeadline).getTime() - Date.now()) / 3_600_000)
+                              );
+                              return (
+                                <div className="pt-2 space-y-2">
+                                  <p className="text-xs text-orange-300">
+                                    Appeal window closes in about {hoursLeft}h. Bond: {quote.bondAmount} SOL.
+                                  </p>
+                                  {disputes.needsSignIn ? (
+                                    <Button variant="outline" className="w-full" onClick={() => disputes.signIn()}>
+                                      Sign in to appeal
+                                    </Button>
+                                  ) : (
+                                    <Button variant="outline" className="w-full" onClick={() => setAppealGoal(goal)}>
+                                      Appeal decision
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (goal.status === 'rejected_appealable' && disputes.needsSignIn) {
+                              return (
+                                <Button variant="outline" className="w-full mt-2" onClick={() => disputes.signIn()}>
+                                  Sign in to appeal
+                                </Button>
+                              );
+                            }
+                            if (dispute) {
+                              return (
+                                <p className="text-xs text-gray-400 pt-2">
+                                  Appeal {dispute.status === 'open' ? 'under review' : dispute.status}
+                                  {' '}(bond {dispute.bondAmount} SOL)
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
                         </CardContent>
                       </Card>
                     </motion.div>
@@ -300,6 +351,21 @@ export default function DashboardPage() {
               </Card>
             </div>
           )}
+
+          {appealGoal && disputes.escrowAddress && (() => {
+            const quote = disputes.appealable.find(a => a.goalId === appealGoal.id);
+            return quote ? (
+              <AppealModal
+                goalId={appealGoal.id}
+                goalTitle={appealGoal.title}
+                bondAmount={quote.bondAmount}
+                escrowAddress={disputes.escrowAddress!}
+                open={!!appealGoal}
+                onOpenChange={(o) => { if (!o) setAppealGoal(null); }}
+                onSuccess={fetchGoals}
+              />
+            ) : null;
+          })()}
 
           {/* Proof Submission Modal */}
           {selectedGoal && (
