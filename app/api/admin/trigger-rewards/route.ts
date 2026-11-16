@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
 import { computeRewardPayouts, sendPayoutFromEscrow } from '@/lib/solana';
 import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase';
+import { markPayoutUnconfirmed } from '@/lib/supabase/payouts';
 import { requireAdmin } from '@/lib/auth/admin';
 import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
       goalId: string;
       recipient: string;
       amount: number;
-      status: 'success' | 'already_distributed' | 'failed';
+      status: 'success' | 'already_distributed' | 'unconfirmed' | 'failed';
       signature?: string;
       error?: string;
     }> = [];
@@ -147,7 +148,13 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const { signature, error } = await sendPayoutFromEscrow(p.recipient, p.amount);
+      const { signature, error, ambiguous } = await sendPayoutFromEscrow(p.recipient, p.amount);
+      if (ambiguous) {
+        // May have landed: keep the claim so a re-run cannot pay twice.
+        if (signature) await markPayoutUnconfirmed(claim.payoutId!, signature);
+        outcomes.push({ ...p, status: 'unconfirmed', signature: signature ?? undefined });
+        continue;
+      }
       if (!signature || error) {
         await releasePayout(claim.payoutId!);
         outcomes.push({ ...p, status: 'failed', error: error?.message || 'Transfer failed' });
@@ -161,6 +168,7 @@ export async function POST(request: NextRequest) {
     const succeeded = outcomes.filter(o => o.status === 'success');
     const alreadyDone = outcomes.filter(o => o.status === 'already_distributed');
     const failedOutcomes = outcomes.filter(o => o.status === 'failed');
+    const unconfirmedOutcomes = outcomes.filter(o => o.status === 'unconfirmed');
     console.log(`[Admin] Rewards: ${succeeded.length} sent, ${alreadyDone.length} already distributed, ${failedOutcomes.length} failed`);
 
     const rewardBreakdown = outcomes.map(o => {
@@ -173,7 +181,7 @@ export async function POST(request: NextRequest) {
         rewardAmount: o.amount,
         totalPayout: o.status === 'success' ? o.amount : 0,
         proportion: ((goal.stake_amount / totalCompletedStake) * 100).toFixed(2) + '%',
-        status: o.status === 'failed' ? 'failed' : 'success',
+        status: o.status === 'failed' ? 'failed' : o.status === 'unconfirmed' ? 'unconfirmed' : 'success',
         signature: o.signature || null,
         error: o.error || (o.status === 'already_distributed' ? 'Already distributed earlier' : null),
       };
@@ -182,8 +190,10 @@ export async function POST(request: NextRequest) {
 
     // Return comprehensive results
     return NextResponse.json({
-      success: failedOutcomes.length === 0,
-      message: failedOutcomes.length === 0
+      success: failedOutcomes.length === 0 && unconfirmedOutcomes.length === 0,
+      message: failedOutcomes.length === 0 && unconfirmedOutcomes.length > 0
+        ? `${unconfirmedOutcomes.length} payouts are unconfirmed (may have landed). Run POST /api/admin/payouts/reconcile; do not retry them.`
+        : failedOutcomes.length === 0
         ? `Distributed ${sentTotal.toFixed(4)} SOL to ${succeeded.length} winners` +
           (alreadyDone.length ? ` (${alreadyDone.length} already paid earlier)` : '')
         : `${failedOutcomes.length} of ${outcomes.length} payouts failed. Safe to re-run: paid goals are skipped.`,
@@ -201,6 +211,7 @@ export async function POST(request: NextRequest) {
         successfulPayouts: succeeded.length,
         alreadyDistributed: alreadyDone.length,
         failedPayouts: failedOutcomes.length,
+        unconfirmedPayouts: unconfirmedOutcomes.length,
         totalWinnersStake: totalCompletedStake,
         totalLosersStake: totalFailedStake,
       },

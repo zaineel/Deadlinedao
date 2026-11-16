@@ -13,4 +13,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_goals_stake_tx_signature
   WHERE stake_tx_signature <> 'pending' AND stake_tx_signature NOT LIKE 'demo_tx_%';
 
 -- 3. Sanity check on stakes.
+ALTER TABLE goals DROP CONSTRAINT IF EXISTS goals_stake_positive;
 ALTER TABLE goals ADD CONSTRAINT goals_stake_positive CHECK (stake_amount > 0) NOT VALID;
