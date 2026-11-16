@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, RefreshControl, ScrollView, Text, View } from 'react-native';
 import {
   agreementLabel,
@@ -118,15 +118,18 @@ function AssignmentCard({
   const [busy, setBusy] = useState<Vote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const inFlight = useRef(false);
   const ui = deriveVoteState(a, now);
   const cd = countdown(a.votingEndsAt, now);
 
   const submit = async (vote: Vote) => {
+    if (inFlight.current) return; // synchronous guard against a double tap before busy state renders
     const invalid = validateReason(reason);
     if (invalid) {
       setError(invalid);
       return;
     }
+    inFlight.current = true;
     setBusy(vote);
     setError(null);
     try {
@@ -138,6 +141,7 @@ function AssignmentCard({
       // 404/409 means our view is stale: refresh to show the real state.
       if (e instanceof ApiError && (e.status === 404 || e.status === 409)) await onVoted();
     } finally {
+      inFlight.current = false;
       setBusy(null);
     }
   };
