@@ -39,6 +39,7 @@
     "node_modules",
     "code",
     "scripts",
-    ".claude"
+    ".claude",
+    "apps/mobile"
   ]
 }
