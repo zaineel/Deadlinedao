@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createProof, updateProofWithValidation, getProofsByGoal } from '@/lib/supabase';
-import { getGoalById, updateGoalStatus, createPayout } from '@/lib/supabase';
+import { getGoalById, transitionGoalStatus } from '@/lib/supabase';
 import { validateProof, logValidation, AIPerformanceMonitor } from '@/lib/snowflake';
-import { processCompletionPayout } from '@/lib/solana';
+import { returnStake } from '@/lib/solana';
+import { GOAL_GRACE_PERIOD_MS } from '@/lib/config/goals';
+import { parseBody, submitProofSchema } from '@/lib/validation/schemas';
+import { verifyProofAuth } from '@/lib/auth/wallet';
 
 // Vercel configuration for Snowflake AI validation
 export const runtime = 'nodejs';
@@ -18,21 +21,9 @@ export async function POST(request: NextRequest) {
   const monitor = new AIPerformanceMonitor('proof_validation');
 
   try {
-    const body = await request.json();
-
-    const {
-      goal_id,
-      text_description,
-      image_url,
-    } = body;
-
-    // Validate required fields
-    if (!goal_id || !text_description) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(request, submitProofSchema);
+    if (!parsed.ok) return parsed.response;
+    const { goal_id, text_description, image_url, timestamp, signature } = parsed.data;
 
     // Get goal details
     const { data: goal, error: goalError } = await getGoalById(goal_id);
@@ -42,6 +33,19 @@ export async function POST(request: NextRequest) {
         { error: 'Goal not found' },
         { status: 404 }
       );
+    }
+
+    // Only the goal's owner may submit proof (wallet-signed request)
+    const auth = verifyProofAuth({
+      walletAddress: goal.wallet_address,
+      goalId: goal_id,
+      textDescription: text_description,
+      imageUrl: image_url,
+      timestamp,
+      signature,
+    });
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: 401 });
     }
 
     // Check goal status
@@ -55,10 +59,7 @@ export async function POST(request: NextRequest) {
     // Check deadline hasn't passed (allow 7 days grace period for demo)
     const deadline = new Date(goal.deadline);
     const now = new Date();
-    const gracePeriodDays = 7;
-    const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
-
-    if (deadline.getTime() + gracePeriodMs < now.getTime()) {
+    if (deadline.getTime() + GOAL_GRACE_PERIOD_MS < now.getTime()) {
       return NextResponse.json(
         { error: 'Goal deadline has passed beyond grace period' },
         { status: 400 }
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     const validationResult = await validateProof(
       goal,
       text_description,
-      image_url
+      image_url ?? undefined
     );
 
     console.log(`[API] Validation result: ${validationResult.verdict} (confidence: ${validationResult.confidence})`);
@@ -117,59 +118,44 @@ export async function POST(request: NextRequest) {
 
     // Handle based on verdict
     if (validationResult.verdict === 'approved') {
-      // Update goal status
-      await updateGoalStatus(goal.id, 'completed');
-
-      // Fetch failed goals with SAME DEADLINE for fair competition
-      // Group by deadline so users compete within same time period
-      const { getAllGoals } = await import('@/lib/supabase');
-      const { data: allGoals } = await getAllGoals();
-
-      // Get goal deadline
-      const goalDeadline = new Date(goal.deadline);
-
-      // Find failed goals within same deadline period (same day)
-      const failedGoals = allGoals?.filter(g => {
-        if (g.status !== 'failed') return false;
-        const gDeadline = new Date(g.deadline);
-        // Match goals with same deadline date
-        return (
-          gDeadline.getFullYear() === goalDeadline.getFullYear() &&
-          gDeadline.getMonth() === goalDeadline.getMonth() &&
-          gDeadline.getDate() === goalDeadline.getDate()
+      // Atomically claim the completion. If a concurrent request already moved
+      // this goal out of 'active', it must not be paid a second time.
+      const { data: claimedGoal } = await transitionGoalStatus(goal.id, 'active', 'completed');
+      if (!claimedGoal) {
+        return NextResponse.json(
+          { error: 'This goal has already been processed' },
+          { status: 409 }
         );
-      }) || [];
-
-      console.log(`[API] Found ${failedGoals.length} failed goals with matching deadline (${goalDeadline.toDateString()})`);
-
-      // Process payout with redistribution
-      const payoutResult = await processCompletionPayout(goal, failedGoals);
-
-      if (payoutResult.signature) {
-        // Record payout in database (amount from payoutResult includes rewards!)
-        await createPayout({
-          goal_id: goal.id,
-          wallet_address: goal.wallet_address,
-          amount: payoutResult.amount,
-          tx_signature: payoutResult.signature,
-          payout_type: payoutResult.type,
-        });
-
-        console.log(`[API] Payout recorded: ${payoutResult.amount} SOL (type: ${payoutResult.type})`);
       }
 
-      monitor.complete({ verdict: 'approved', payout: payoutResult.signature });
+      // Return the stake (reserved in the DB before any SOL is sent)
+      const payoutResult = await returnStake(goal);
+
+      if (payoutResult.status === 'failed') {
+        // Reopen the goal so the user can retry
+        await transitionGoalStatus(goal.id, 'completed', 'active');
+        console.error(`[API] Stake payout failed for goal ${goal.id}: ${payoutResult.error}`);
+        monitor.complete({ verdict: 'approved', payout: undefined });
+        return NextResponse.json(
+          { error: 'Proof approved but the stake payout failed. Please try again shortly.' },
+          { status: 502 }
+        );
+      }
+
+      const payoutSignature = payoutResult.status === 'sent' ? payoutResult.signature : undefined;
+
+      monitor.complete({ verdict: 'approved', payout: payoutSignature });
 
       return NextResponse.json({
         success: true,
         proof: updatedProof || proof,
         validation: validationResult,
         goal_status: 'completed',
-        payout: payoutResult.signature ? {
+        payout: payoutSignature ? {
           phase: 'stake_returned',
-          signature: payoutResult.signature,
+          signature: payoutSignature,
           amount: payoutResult.amount,
-          type: payoutResult.type,
+          type: 'original_stake',
           message: 'Your stake has been returned! Rewards will be distributed after the deadline.',
         } : null,
         reward_info: {
@@ -181,7 +167,7 @@ export async function POST(request: NextRequest) {
 
     } else if (validationResult.verdict === 'rejected') {
       // Update goal status to failed
-      await updateGoalStatus(goal.id, 'failed');
+      await transitionGoalStatus(goal.id, 'active', 'failed');
 
       monitor.complete({ verdict: 'rejected' });
 
@@ -195,7 +181,7 @@ export async function POST(request: NextRequest) {
 
     } else {
       // needs_review
-      await updateGoalStatus(goal.id, 'pending_validation');
+      await transitionGoalStatus(goal.id, 'active', 'pending_validation');
 
       monitor.complete({ verdict: 'needs_review' });
 

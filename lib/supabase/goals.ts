@@ -151,6 +151,33 @@ export async function updateGoalStatus(
 }
 
 /**
+ * Atomically move a goal from one status to another.
+ * Returns data = null (no error) when the goal was not in the `from` status,
+ * i.e. someone else already moved it. Use this to guard payouts against races.
+ */
+export async function transitionGoalStatus(
+  goalId: string,
+  from: Goal['status'],
+  to: Goal['status']
+): Promise<{ data: Goal | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('goals')
+      .update({ status: to })
+      .eq('id', goalId)
+      .eq('status', from)
+      .select();
+
+    if (error) throw error;
+
+    return { data: (data && data.length > 0 ? (data[0] as Goal) : null), error: null };
+  } catch (error) {
+    console.error('Error transitioning goal status:', error);
+    return { data: null, error: error as Error };
+  }
+}
+
+/**
  * Update goal (generic update)
  */
 export async function updateGoal(

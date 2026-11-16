@@ -45,6 +45,7 @@ export {
   calculateRedistribution,
   executeRedistribution,
   processCompletionPayout,
+  computeRewardPayouts,
   distributeDeadlineRewards,
   calculatePotentialEarnings,
   formatPayoutBreakdown,
@@ -76,3 +77,6 @@ export type {
   TransactionDetails,
   TransactionVerification,
 } from './transactions';
+
+export { returnStake } from './stake-return';
+export type { StakeReturnResult } from './stake-return';

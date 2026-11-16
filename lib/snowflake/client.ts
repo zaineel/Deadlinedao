@@ -4,6 +4,8 @@
  */
 
 import snowflake from "snowflake-sdk";
+import fs from "fs";
+import path from "path";
 
 interface SnowflakeConfig {
   account: string;
@@ -51,8 +53,6 @@ function createConnection(): snowflake.Connection {
       privateKeyPem = pemKey;
     } else {
       console.log("[Snowflake] Using local .p8 key");
-      const fs = require("fs");
-      const path = require("path");
       privateKeyPem = fs.readFileSync(
         path.join(process.cwd(), ".snowflake-keys", "rsa_key.p8"),
         "utf8"
@@ -115,7 +115,11 @@ export async function cortexComplete(
     | "mistral-7b"
     | "llama3-70b"
     | "mixtral-8x7b",
-  prompt: string
+  prompt: string,
+  // NOTE: accepted for call-site compatibility but not yet applied. The
+  // 2-argument COMPLETE form has no sampling options; applying them requires
+  // the message-array form, which returns JSON instead of plain text.
+  _options?: { temperature?: number; maxTokens?: number }
 ): Promise<{ completion: string | null; error: Error | null }> {
   try {
     const query = `SELECT SNOWFLAKE.CORTEX.COMPLETE(?, ?) AS completion;`;
@@ -135,7 +139,7 @@ export async function cortexSentiment(
     const query = `SELECT SNOWFLAKE.CORTEX.SENTIMENT(?) AS sentiment;`;
     const { data, error } = await executeSnowflakeQuery(query, [text]);
     if (error) return { sentiment: null, error };
-    return { sentiment: data?.[0]?.SENTIMENT || null, error: null };
+    return { sentiment: data?.[0]?.SENTIMENT ?? null, error: null };
   } catch (error) {
     console.error("Cortex SENTIMENT error:", error);
     return { sentiment: null, error: error as Error };
@@ -151,7 +155,10 @@ export async function cortexClassify(
   error: Error | null;
 }> {
   try {
-    const categoriesStr = categories.map((c) => `'${c}'`).join(", ");
+    // Escape for a SQL string literal (backslash and single quote)
+    const categoriesStr = categories
+      .map((c) => `'${c.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`)
+      .join(", ");
     const query = `
       SELECT SNOWFLAKE.CORTEX.CLASSIFY_TEXT(
         ?,

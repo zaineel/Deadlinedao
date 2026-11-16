@@ -62,8 +62,6 @@ export default function CreateGoalPage() {
     setIsSubmitting(true);
 
     try {
-      const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
-
       // Step 1: Create goal and get transaction
       const createResponse = await fetch('/api/goals/create', {
         method: 'POST',
@@ -71,7 +69,6 @@ export default function CreateGoalPage() {
         body: JSON.stringify({
           ...formData,
           walletAddress: publicKey.toString(),
-          demoMode: isDemoMode,
         }),
       });
 
@@ -84,7 +81,7 @@ export default function CreateGoalPage() {
       const { goalId, transaction: serializedTransaction, demoMode } = createData;
 
       // If demo mode, skip blockchain transaction
-      if (demoMode || isDemoMode) {
+      if (demoMode) {
         setSuccess('✅ Goal created in demo mode! (No blockchain transaction needed)');
 
         // Auto-confirm in demo mode

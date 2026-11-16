@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGoalById, updateGoalStatus } from '@/lib/supabase';
+import { requireAdmin } from '@/lib/auth/admin';
+import { parseBody, parseValue, uuidSchema, goalStatusUpdateSchema } from '@/lib/validation/schemas';
 
 /**
  * GET /api/goals/[id]
@@ -7,10 +9,12 @@ import { getGoalById, updateGoalStatus } from '@/lib/supabase';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const idResult = parseValue((await params).id, uuidSchema);
+    if (!idResult.ok) return idResult.response;
+    const id = idResult.data;
 
     const { data: goal, error } = await getGoalById(id);
 
@@ -41,28 +45,20 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  // Status changes drive payouts, so only an admin may set them directly
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
-    const { id } = params;
-    const body = await request.json();
-    const { status } = body;
+    const idResult = parseValue((await params).id, uuidSchema);
+    if (!idResult.ok) return idResult.response;
+    const id = idResult.data;
 
-    if (!status) {
-      return NextResponse.json(
-        { error: 'Status is required' },
-        { status: 400 }
-      );
-    }
-
-    // Validate status value
-    const validStatuses = ['active', 'pending_validation', 'completed', 'failed'];
-    if (!validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: 'Invalid status value' },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(request, goalStatusUpdateSchema);
+    if (!parsed.ok) return parsed.response;
+    const { status } = parsed.data;
 
     const { data: goal, error } = await updateGoalStatus(id, status);
 

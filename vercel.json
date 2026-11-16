@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/cron/expire-goals", "schedule": "0 6 * * *" }
+  ],
   "functions": {
     "app/api/proofs/route.ts": {
       "maxDuration": 60

@@ -147,6 +147,28 @@ export async function executeRedistribution(
 }
 
 /**
+ * Compute each completed goal's Phase 2 reward (pro rata share of failed stakes).
+ * Pure math, one entry per goal, so callers can claim/send/record per goal.
+ */
+export function computeRewardPayouts(
+  completedGoals: Goal[],
+  failedGoals: Goal[]
+): Array<{ goalId: string; recipient: string; amount: number }> {
+  const totalWinnersStake = completedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
+  const totalLosersStake = failedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
+  if (totalWinnersStake <= 0 || totalLosersStake <= 0) return [];
+
+  return completedGoals
+    .map(g => ({
+      goalId: g.id,
+      recipient: g.wallet_address,
+      // 4 decimals matches the payouts.amount column
+      amount: Math.floor((g.stake_amount / totalWinnersStake) * totalLosersStake * 1e4) / 1e4,
+    }))
+    .filter(p => p.amount > 0);
+}
+
+/**
  * Process IMMEDIATE payout for a single completed goal
  * Returns ONLY the original stake - rewards are distributed later after deadline
  *
