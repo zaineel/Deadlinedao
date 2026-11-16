@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
-import { computeRewardPayouts, sendPayoutFromEscrow } from '@/lib/solana';
+import { sendPayoutFromEscrow } from '@/lib/solana';
 import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase';
 import { markPayoutUnconfirmed } from '@/lib/supabase/payouts';
 import { requireAdmin } from '@/lib/auth/admin';
 import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
+import { isFeatureEnabled } from '@/lib/config/features';
+import { getTeamGoalRemaindersForDay } from '@/lib/supabase/teams';
+import { composeGlobalPool, computeGlobalRewardPayouts, excludeTeamGoals, sumTeamRemainders, unsettledTeamGoalIds } from '@/lib/teams/pool';
 import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
 import { z } from 'zod';
 import { unsettledGoals } from '@/lib/disputes/logic';
@@ -71,7 +74,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Admin] Found ${goalsWithDeadline.length} goals with deadline ${deadline}`);
 
     // Never distribute while appeals are still undecided: those stakes are not final
-    const unsettled = unsettledGoals(goalsWithDeadline);
+    const unsettled = unsettledGoals(excludeTeamGoals(goalsWithDeadline));
     if (unsettled.length > 0) {
       return NextResponse.json(
         {
@@ -82,9 +85,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Separate completed and failed goals
-    const completedGoals = goalsWithDeadline.filter(g => g.status === 'completed');
-    const failedGoals = goalsWithDeadline.filter(g => g.status === 'failed');
+    // Team member goals are settled by /api/admin/team-settlement and never join the
+    // global winner/loser sets. Each settled team goal's recorded remainder joins the pool.
+    let teamRemainder = 0;
+    if (isFeatureEnabled('teams')) {
+      const teamRows = await getTeamGoalRemaindersForDay(deadline);
+      const unsettled = unsettledTeamGoalIds(teamRows);
+      if (unsettled.length > 0) {
+        return NextResponse.json(
+          { success: false, error: 'Settle team goals for this deadline first', unsettledTeamGoalIds: unsettled },
+          { status: 409 }
+        );
+      }
+      teamRemainder = sumTeamRemainders(teamRows);
+    }
+    const pool = composeGlobalPool(goalsWithDeadline, teamRemainder);
+    const completedGoals = pool.completed;
+    const failedGoals = pool.failed;
 
     console.log(`[Admin] Completed: ${completedGoals.length}, Failed: ${failedGoals.length}`);
 
@@ -95,38 +112,38 @@ export async function POST(request: NextRequest) {
         message: 'No completed goals found for this deadline',
         stats: {
           deadline,
-          totalGoals: goalsWithDeadline.length,
+          totalGoals: excludeTeamGoals(goalsWithDeadline).length,
           completed: 0,
           failed: failedGoals.length,
-          active: goalsWithDeadline.filter(g => g.status === 'active').length,
+          active: excludeTeamGoals(goalsWithDeadline).filter(g => g.status === 'active').length,
         },
       });
     }
 
-    if (failedGoals.length === 0) {
+    if (failedGoals.length === 0 && pool.extraPool <= 0) {
       return NextResponse.json({
         success: false,
         message: 'No failed goals found - no rewards to distribute',
         stats: {
           deadline,
-          totalGoals: goalsWithDeadline.length,
+          totalGoals: excludeTeamGoals(goalsWithDeadline).length,
           completed: completedGoals.length,
           failed: 0,
-          active: goalsWithDeadline.filter(g => g.status === 'active').length,
+          active: excludeTeamGoals(goalsWithDeadline).filter(g => g.status === 'active').length,
         },
       });
     }
 
     // Calculate totals
     const totalCompletedStake = completedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
-    const totalFailedStake = failedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
+    const totalFailedStake = pool.totalPool;
 
     console.log(`[Admin] Total completed stake: ${totalCompletedStake} SOL`);
     console.log(`[Admin] Total failed stake: ${totalFailedStake} SOL`);
     // Distribute rewards (Phase 2), one payout per winning goal.
     // Each payout is CLAIMED in the database before SOL is sent, so running
     // this twice (or two admins at once) can never pay the same goal twice.
-    const planned = computeRewardPayouts(completedGoals, failedGoals);
+    const planned = computeGlobalRewardPayouts(completedGoals, failedGoals, pool.extraPool);
     const outcomes: Array<{
       goalId: string;
       recipient: string;
@@ -199,10 +216,10 @@ export async function POST(request: NextRequest) {
         : `${failedOutcomes.length} of ${outcomes.length} payouts failed. Safe to re-run: paid goals are skipped.`,
       stats: {
         deadline,
-        totalGoals: goalsWithDeadline.length,
+        totalGoals: excludeTeamGoals(goalsWithDeadline).length,
         completed: completedGoals.length,
         failed: failedGoals.length,
-        active: goalsWithDeadline.filter(g => g.status === 'active').length,
+        active: excludeTeamGoals(goalsWithDeadline).filter(g => g.status === 'active').length,
         totalCompletedStake,
         totalFailedStake,
         rewardsDistributed: sentTotal,
@@ -258,15 +275,23 @@ export async function GET(request: NextRequest) {
     // Filter goals by deadline
     const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
-    const unsettledCount = unsettledGoals(goalsWithDeadline).length;
+    const unsettledCount = unsettledGoals(excludeTeamGoals(goalsWithDeadline)).length;
 
-    // Separate by status
-    const completedGoals = goalsWithDeadline.filter(g => g.status === 'completed');
-    const failedGoals = goalsWithDeadline.filter(g => g.status === 'failed');
-    const activeGoals = goalsWithDeadline.filter(g => g.status === 'active');
+    // Team member goals are excluded; settled team remainders join the pool (flag on only).
+    let teamRemainder = 0;
+    let unsettledTeamGoals: string[] = [];
+    if (isFeatureEnabled('teams')) {
+      const teamRows = await getTeamGoalRemaindersForDay(deadline);
+      unsettledTeamGoals = unsettledTeamGoalIds(teamRows);
+      teamRemainder = sumTeamRemainders(teamRows);
+    }
+    const pool = composeGlobalPool(goalsWithDeadline, teamRemainder);
+    const completedGoals = pool.completed;
+    const failedGoals = pool.failed;
+    const activeGoals = excludeTeamGoals(goalsWithDeadline).filter(g => g.status === 'active');
 
     const totalCompletedStake = completedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
-    const totalFailedStake = failedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
+    const totalFailedStake = pool.totalPool;
 
     // Calculate what each winner would receive
     const preview = completedGoals.map(goal => {
@@ -287,7 +312,7 @@ export async function GET(request: NextRequest) {
       preview: true,
       deadline,
       stats: {
-        totalGoals: goalsWithDeadline.length,
+        totalGoals: excludeTeamGoals(goalsWithDeadline).length,
         completed: completedGoals.length,
         failed: failedGoals.length,
         active: activeGoals.length,
@@ -295,11 +320,12 @@ export async function GET(request: NextRequest) {
         totalFailedStake,
       },
       distribution: preview,
-      canDistribute: unsettledCount === 0 && completedGoals.length > 0 && failedGoals.length > 0,
+      canDistribute: unsettledCount === 0 && completedGoals.length > 0 && totalFailedStake > 0 && unsettledTeamGoals.length === 0,
       pendingAppeals: unsettledCount,
+      ...(isFeatureEnabled('teams') ? { teamRemainder, unsettledTeamGoalIds: unsettledTeamGoals } : {}),
       note: unsettledCount > 0 ? 'Waiting on appeals: goals are still in the appeal window or disputed' :
             completedGoals.length === 0 ? 'No completed goals to reward' :
-            failedGoals.length === 0 ? 'No failed stakes to distribute' :
+            totalFailedStake <= 0 ? 'No failed stakes to distribute' :
             'Ready to distribute rewards',
     });
 
