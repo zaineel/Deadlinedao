@@ -19,6 +19,7 @@ vi.mock('@/lib/snowflake', () => ({
   AIPerformanceMonitor: class {},
 }));
 vi.mock('@/lib/solana', () => ({ returnStake: vi.fn() }));
+vi.mock('@/lib/supabase/disputes', () => ({ openAppealWindow: vi.fn() }));
 
 import { GET } from '@/app/api/proofs/route';
 import { issueSession } from '@/lib/auth/session';
