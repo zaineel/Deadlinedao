@@ -1,0 +1,26 @@
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/mobile/**', 'lib/auth/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['apps/mobile/**', 'lib/auth/**', '.github/workflows/mobile.yml']
+
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # includes tests/drift.test.ts, which imports the web message builders from ../../lib
+      - run: npm test
