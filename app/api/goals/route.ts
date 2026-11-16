@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { parseValue, walletAddressSchema } from '@/lib/validation/schemas';
+import { requireUserSession } from '@/lib/auth/csrf';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -9,11 +10,20 @@ const supabase = createClient(
 );
 
 export async function GET(request: NextRequest) {
+  const auth = requireUserSession(request);
+  if (!auth.ok) return auth.response;
+  const wallet = auth.wallet;
+
   try {
-    const { searchParams } = new URL(request.url);
-    const walletResult = parseValue(searchParams.get('wallet'), walletAddressSchema);
-    if (!walletResult.ok) return walletResult.response;
-    const wallet = walletResult.data;
+    // `?wallet=` is optional (the mobile app sends it); it must be the session wallet
+    const queryWallet = new URL(request.url).searchParams.get('wallet');
+    if (queryWallet !== null) {
+      const walletResult = parseValue(queryWallet, walletAddressSchema);
+      if (!walletResult.ok) return walletResult.response;
+      if (walletResult.data !== wallet) {
+        return NextResponse.json({ error: 'Wallet does not match session' }, { status: 403 });
+      }
+    }
 
     // Fetch goals for the wallet
     const { data: goals, error } = await supabase

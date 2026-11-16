@@ -4,14 +4,19 @@ import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Menu, X } from "lucide-react"
 import { WalletButton } from "@/components/WalletButton"
+import { useFeatures } from "@/components/auth/useFeatures"
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const features = useFeatures()
 
   const navLinks = [
     { name: "How It Works", href: "/#how-it-works" },
     { name: "Create Goal", href: "/create" },
     { name: "Dashboard", href: "/dashboard" },
+    ...(features.teams ? [{ name: "Teams", href: "/teams" }] : []),
+    ...(features.orgs ? [{ name: "Organizations", href: "/orgs" }] : []),
   ]
 
   return (

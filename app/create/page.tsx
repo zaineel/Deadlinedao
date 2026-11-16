@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { Header } from '@/components/header';
 import { WalletButton } from '@/components/WalletButton';
+import { SignInGate } from '@/components/auth/SignInGate';
+import { useSession } from '@/components/auth/SessionProvider';
 import { Transaction } from '@solana/web3.js';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -26,6 +28,7 @@ export default function CreateGoalPage() {
   const router = useRouter();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
+  const { status, authFetch } = useSession();
 
   const [formData, setFormData] = useState({
     title: '',
@@ -62,15 +65,15 @@ export default function CreateGoalPage() {
     setIsSubmitting(true);
 
     try {
-      // Step 1: Create goal and get transaction
-      const createResponse = await fetch('/api/goals/create', {
+      // Step 1: Create goal and get transaction (wallet comes from the session)
+      const createResponse = await authFetch('/api/goals/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          walletAddress: publicKey.toString(),
-        }),
+        body: JSON.stringify(formData),
       });
+      if (createResponse.status === 401) {
+        throw new Error('Please sign in with your wallet to create a goal.');
+      }
 
       const createData = await createResponse.json();
 
@@ -85,7 +88,7 @@ export default function CreateGoalPage() {
         setSuccess('✅ Goal created in demo mode! (No blockchain transaction needed)');
 
         // Auto-confirm in demo mode
-        await fetch('/api/goals/confirm', {
+        await authFetch('/api/goals/confirm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -114,7 +117,7 @@ export default function CreateGoalPage() {
       await connection.confirmTransaction(signature, 'confirmed');
 
       // Step 4: Confirm goal creation in database
-      const confirmResponse = await fetch('/api/goals/confirm', {
+      const confirmResponse = await authFetch('/api/goals/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -197,6 +200,8 @@ export default function CreateGoalPage() {
                 <WalletButton className="!bg-gradient-to-r !from-purple-500 !via-pink-500 !to-purple-500" />
               </CardContent>
             </Card>
+          ) : status !== 'signed_in' ? (
+            <SignInGate what="create a goal" />
           ) : (
             <form onSubmit={handleSubmit}>
               <Card className="bg-gray-900/50 border-gray-800">

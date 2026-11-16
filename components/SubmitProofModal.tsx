@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useSession } from '@/components/auth/SessionProvider';
 import { buildProofMessage, proofPayload } from '@/lib/auth/proof-message';
 import { Loader2, Upload, CheckCircle2, XCircle, Image as ImageIcon } from 'lucide-react';
 
@@ -21,6 +22,7 @@ interface SubmitProofModalProps {
 
 export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSuccess }: SubmitProofModalProps) {
   const { signMessage } = useWallet();
+  const { authFetch } = useSession();
   const [description, setDescription] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -62,11 +64,14 @@ export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSucc
         formData.append('file', imageFile);
         formData.append('goalId', goalId);
 
-        const uploadResponse = await fetch('/api/upload/proof', {
+        const uploadResponse = await authFetch('/api/upload/proof', {
           method: 'POST',
           body: formData,
         });
 
+        if (uploadResponse.status === 401) {
+          throw new Error('Please sign in with your wallet to submit proof');
+        }
         if (!uploadResponse.ok) {
           throw new Error('Failed to upload image');
         }
@@ -93,7 +98,7 @@ export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSucc
       const signature = btoa(String.fromCharCode(...signatureBytes));
 
       // Step 3: Submit proof and get AI validation
-      const proofResponse = await fetch('/api/proofs', {
+      const proofResponse = await authFetch('/api/proofs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

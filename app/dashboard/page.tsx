@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Header } from '@/components/header';
 import { WalletButton } from '@/components/WalletButton';
+import { SignInGate } from '@/components/auth/SignInGate';
+import { useSession } from '@/components/auth/SessionProvider';
+import { useFeatures } from '@/components/auth/useFeatures';
 import { SubmitProofModal } from '@/components/SubmitProofModal';
 import { PrizePoolCard } from '@/components/PrizePoolCard';
 import { motion } from 'framer-motion';
@@ -25,12 +28,16 @@ interface Goal {
   status: 'pending_validation' | 'active' | 'completed' | 'failed' | 'rejected_appealable' | 'disputed';
   appeal_deadline?: string | null;
   created_at: string;
+  share_public?: boolean | null;
   escrow_wallet: string;
   transaction_signature?: string;
 }
 
 export default function DashboardPage() {
   const { connected, publicKey } = useWallet();
+  const { status, wallet: sessionWallet, authFetch } = useSession();
+  const features = useFeatures();
+  const [sharing, setSharing] = useState<Record<string, boolean>>({});
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,20 +47,45 @@ export default function DashboardPage() {
   const disputes = useDisputes(goals);
 
   useEffect(() => {
-    if (connected && publicKey) {
+    if (connected && publicKey && status === 'signed_in') {
       fetchGoals();
     } else {
+      setGoals([]);
       setLoading(false);
     }
-  }, [connected, publicKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, publicKey, status]);
+
+  const toggleShare = async (goalId: string, share: boolean) => {
+    setSharing(prev => ({ ...prev, [goalId]: true }));
+    try {
+      const res = await authFetch('/api/goals/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goalId, share }),
+      });
+      if (res.ok) {
+        setGoals(prev => prev.map(g => (g.id === goalId ? { ...g, share_public: share } : g)));
+      } else {
+        setError('Could not update sharing');
+      }
+    } catch {
+      setError('Could not update sharing');
+    } finally {
+      setSharing(prev => ({ ...prev, [goalId]: false }));
+    }
+  };
 
   const fetchGoals = async () => {
     if (!publicKey) return;
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/goals?wallet=${publicKey.toString()}`);
-      if (response.ok) {
+      // The server returns the session wallet's goals; no wallet is sent
+      const response = await authFetch('/api/goals');
+      if (response.status === 401) {
+        setError('Please sign in to view your goals');
+      } else if (response.ok) {
         const data = await response.json();
         setGoals(data.goals || []);
       } else {
@@ -133,6 +165,8 @@ export default function DashboardPage() {
                 <WalletButton className="!bg-gradient-to-r !from-purple-500 !via-pink-500 !to-purple-500" />
               </CardContent>
             </Card>
+          ) : status !== 'signed_in' ? (
+            <SignInGate what="view your goals" />
           ) : loading ? (
             <div className="flex justify-center items-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
@@ -212,6 +246,16 @@ export default function DashboardPage() {
                               className="w-full mt-4 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500"
                             >
                               Submit Proof
+                            </Button>
+                          )}
+                          {features.push && goal.status === 'completed' && (
+                            <Button
+                              variant="outline"
+                              className="w-full mt-2"
+                              disabled={!!sharing[goal.id]}
+                              onClick={() => toggleShare(goal.id, !goal.share_public)}
+                            >
+                              {goal.share_public ? 'Stop sharing publicly' : 'Share publicly'}
                             </Button>
                           )}
                           {disputes.enabled && (() => {
@@ -304,7 +348,7 @@ export default function DashboardPage() {
                           >
                             <PrizePoolCard
                               deadline={deadline}
-                              userWallet={publicKey?.toString()}
+                              userWallet={sessionWallet ?? undefined}
                             />
                           </motion.div>
                         ))}
