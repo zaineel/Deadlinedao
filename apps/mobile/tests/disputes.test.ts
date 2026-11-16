@@ -51,12 +51,23 @@ describe('fileAppeal', () => {
     const blockhash = key();
     await fileAppeal(
       { wallet, disputes: { openDispute }, getBlockhash: async () => blockhash },
-      { goalId: 'g', reason: 'the proof was valid', bondAmount: 0.05, escrowAddress: escrow, walletAddress: from }
+      { goalId: 'g', reason: 'the proof was valid', bondAmount: 0.05, stakeAmount: 1, escrowAddress: escrow, walletAddress: from }
     );
     expect(Buffer.from(sent[0]).toString('hex')).toBe(
       Buffer.from(buildTransferTransaction({ from, to: escrow, lamports: 50_000_000, recentBlockhash: blockhash })).toString('hex')
     );
     expect(openDispute).toHaveBeenCalledWith({ goalId: 'g', reason: 'the proof was valid', bondSignature: 'BONDSIG' });
+  });
+  it('refuses to sign a bond that is not 5% of the stake', async () => {
+    const signAndSendTransaction = vi.fn();
+    const wallet = { signAndSendTransaction } as unknown as WalletProvider;
+    await expect(
+      fileAppeal(
+        { wallet, disputes: { openDispute: vi.fn() }, getBlockhash: async () => key() },
+        { goalId: 'g', reason: 'the proof was valid', bondAmount: 0.5, stakeAmount: 1, escrowAddress: key(), walletAddress: key() }
+      )
+    ).rejects.toThrow(/does not match/);
+    expect(signAndSendTransaction).not.toHaveBeenCalled();
   });
   it('does not touch the wallet when the reason is too short', async () => {
     const signAndSendTransaction = vi.fn();
@@ -64,7 +75,7 @@ describe('fileAppeal', () => {
     await expect(
       fileAppeal(
         { wallet, disputes: { openDispute: vi.fn() }, getBlockhash: async () => key() },
-        { goalId: 'g', reason: 'no', bondAmount: 0.05, escrowAddress: key(), walletAddress: key() }
+        { goalId: 'g', reason: 'no', bondAmount: 0.05, stakeAmount: 1, escrowAddress: key(), walletAddress: key() }
       )
     ).rejects.toThrow();
     expect(signAndSendTransaction).not.toHaveBeenCalled();
@@ -118,7 +129,7 @@ describe('transfer helpers', () => {
     const bad = vi.fn(async () => ({ ok: true, json: async () => ({ error: { message: 'nope' } }) }));
     await expect(fetchLatestBlockhash('https://rpc', bad)).rejects.toThrow('nope');
   });
-  it('bond rounds up to a lamport and validates the reason length', () => {
+  it('bond is integer lamports and validates the reason length', () => {
     expect(bondLamports(0.05)).toBe(50_000_000);
     expect(validateReason('short')).not.toBeNull();
     expect(validateReason('this is long enough')).toBeNull();

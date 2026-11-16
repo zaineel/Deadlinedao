@@ -56,7 +56,7 @@ export default function DisputeScreen() {
   const left = countdown(quote?.appealDeadline ?? goal?.appeal_deadline, now);
 
   const submit = async () => {
-    if (!quote || !data?.escrowAddress || !session) return;
+    if (!quote || !goal || !data?.escrowAddress || !session) return;
     const invalid = validateReason(reason);
     if (invalid) {
       setError(invalid);
@@ -71,6 +71,7 @@ export default function DisputeScreen() {
           goalId,
           reason,
           bondAmount: quote.bondAmount,
+          stakeAmount: Number(goal.stake_amount),
           escrowAddress: data.escrowAddress,
           walletAddress: session.wallet,
         }

@@ -3,9 +3,9 @@ name: Mobile
 on:
   push:
     branches: [main]
-    paths: ['apps/mobile/**', 'lib/auth/**', '.github/workflows/mobile.yml']
+    paths: ['apps/mobile/**', 'lib/auth/**', 'lib/disputes/**', '.github/workflows/mobile.yml']
   pull_request:
-    paths: ['apps/mobile/**', 'lib/auth/**', '.github/workflows/mobile.yml']
+    paths: ['apps/mobile/**', 'lib/auth/**', 'lib/disputes/**', '.github/workflows/mobile.yml']
 
 jobs:
   mobile:
@@ -21,6 +21,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/mobile/package-lock.json
       - run: npm ci
+      # tests/*drift.test.ts import web code and @solana/web3.js from the repo root
+      - run: npm ci --ignore-scripts
+        working-directory: .
       - run: npm run typecheck
       # includes tests/drift.test.ts, which imports the web message builders from ../../lib
       - run: npm test

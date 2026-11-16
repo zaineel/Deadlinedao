@@ -3,9 +3,15 @@ import { REASON_MAX, REASON_MIN } from '../api/disputes';
 import { buildTransferTransaction, LAMPORTS_PER_SOL } from '../solana/transfer';
 import type { WalletProvider } from '../wallet/types';
 
-/** Bond in lamports exactly as the web AppealModal computes it (the server accepts >= its own rounding). */
+/** A SOL amount that is already a whole number of lamports (the server quote) -> integer lamports. */
 export function bondLamports(bondSol: number): number {
-  return Math.ceil(bondSol * LAMPORTS_PER_SOL);
+  return Math.round(bondSol * LAMPORTS_PER_SOL);
+}
+
+/** Same integer math as lib/disputes/logic computeBond: 5% of the stake, rounded up to a lamport. */
+export function expectedBondLamports(stakeSol: number): number {
+  if (!Number.isFinite(stakeSol) || stakeSol <= 0) throw new RangeError('Invalid stake');
+  return Math.ceil((Math.round(stakeSol * LAMPORTS_PER_SOL) * 500) / 10_000);
 }
 
 export function validateReason(reason: string): string | null {
@@ -26,15 +32,18 @@ export async function fileAppeal(
     disputes: Pick<DisputesApi, 'openDispute'>;
     getBlockhash: () => Promise<string>;
   },
-  p: { goalId: string; reason: string; bondAmount: number; escrowAddress: string; walletAddress: string }
+  p: { goalId: string; reason: string; bondAmount: number; stakeAmount: number; escrowAddress: string; walletAddress: string }
 ) {
   const invalid = validateReason(p.reason);
   if (invalid) throw new Error(invalid);
   if (!p.escrowAddress) throw new Error('Escrow address unavailable');
+  // Never sign a quote that is not exactly 5% of the stake the user sees.
+  const lamports = bondLamports(p.bondAmount);
+  if (lamports !== expectedBondLamports(p.stakeAmount)) throw new Error('Bond quote does not match your stake. Refresh and try again.');
   const tx = buildTransferTransaction({
     from: p.walletAddress,
     to: p.escrowAddress,
-    lamports: bondLamports(p.bondAmount),
+    lamports,
     recentBlockhash: await deps.getBlockhash(),
   });
   const bondSignature = await deps.wallet.signAndSendTransaction(tx);

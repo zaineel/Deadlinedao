@@ -2,7 +2,7 @@
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import nacl from 'tweetnacl';
 import { describe, expect, it } from 'vitest';
-import { bondLamports } from '../src/disputes/appeal-flow';
+import { bondLamports, expectedBondLamports } from '../src/disputes/appeal-flow';
 import { buildTransferTransaction } from '../src/solana/transfer';
 import { toBase58 } from '../src/wallet/encoding';
 import { computeBond } from '../../../lib/disputes/logic';
@@ -28,9 +28,10 @@ describe('transfer drift vs @solana/web3.js', () => {
 
 describe('bond drift vs lib/disputes/logic', () => {
   it('lamports of the server quote equal the exact 5% bond (within the server >= check)', () => {
-    for (const stake of [0.1, 0.5, 1, 2.5, 0.123456789]) {
+    for (const stake of [0.1, 0.5, 1, 2.5, 0.123456789, 0.3, 0.07, 1.000000001, 3.333333333]) {
       const bond = computeBond(stake);
       expect(bondLamports(bond)).toBe(Math.round(bond * 1e9));
+      expect(expectedBondLamports(stake)).toBe(bondLamports(bond));
     }
   });
 });
