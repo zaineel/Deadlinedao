@@ -56,7 +56,7 @@ Server-only variables must never be exposed to the browser (do not prefix with `
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Full DB access; bypasses RLS |
 | `SOLANA_ESCROW_PRIVATE_KEY` | yes | Escrow keypair as a JSON byte array; controls all staked funds |
 | `SNOWFLAKE_ACCOUNT` | yes | Snowflake account identifier |
-| `SNOWFLAKE_USERNAME`, `SNOWFLAKE_WAREHOUSE` | yes | Snowflake user and warehouse (code defaults exist; set your own) |
+| `SNOWFLAKE_USERNAME`, `SNOWFLAKE_WAREHOUSE` | yes | Snowflake user (required, no default; a missing value is a config error) and warehouse (defaults to `COMPUTE_WH`) |
 | `SNOWFLAKE_PRIVATE_KEY` | yes | Key-pair auth for Snowflake |
 | `CLOUDFLARE_R2_ENDPOINT`, `CLOUDFLARE_R2_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_KEY`, `CLOUDFLARE_R2_BUCKET` | yes | R2 credentials |
 | `CLOUDFLARE_R2_PUBLIC_URL` | yes | Public base URL for stored proofs |
@@ -66,7 +66,7 @@ Server-only variables must never be exposed to the browser (do not prefix with `
 | `SESSION_SECRET` | yes | Used by wallet sessions |
 | `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | yes | Optional; enable the email channel in `lib/notify` |
 
-Note: `.env.local.example` still lists `SNOWFLAKE_API_ENDPOINT` and `SNOWFLAKE_JWT_TOKEN`, but the code reads `SNOWFLAKE_USERNAME`, `SNOWFLAKE_WAREHOUSE` and `SNOWFLAKE_PRIVATE_KEY`. Treat the code as authoritative. `NEXT_PUBLIC_DEMO_MODE` is still read as a fallback for `DEMO_MODE`; do not set it in production.
+`.env.local.example` lists every variable the code reads. `NEXT_PUBLIC_DEMO_MODE` is still read as a fallback for `DEMO_MODE`; do not set it in production.
 
 ### Database
 

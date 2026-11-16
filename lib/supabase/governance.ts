@@ -397,3 +397,26 @@ export async function getConflictedWallets(owner: string): Promise<{ data: Set<s
   }
   return { data: out, error: null };
 }
+
+/* ---------- reward reconciliation ---------- */
+
+export interface UnconfirmedReward extends GovernanceReward {
+  created_at: string;
+}
+
+/** Rewards left 'unconfirmed' after an ambiguous send (oldest first). */
+export async function listUnconfirmedRewards(limit = 50): Result<UnconfirmedReward[]> {
+  const { data, error } = await supabase
+    .from('governance_rewards')
+    .select('*')
+    .eq('status', 'unconfirmed')
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  return { data: (data as UnconfirmedReward[] | null) ?? null, error: err(error) };
+}
+
+/** Reconcile found the transfer never landed: drop the unconfirmed claim so a later run can retry. */
+export async function releaseUnconfirmedReward(rewardId: string): Promise<void> {
+  const { error } = await supabase.from('governance_rewards').delete().eq('id', rewardId).eq('status', 'unconfirmed');
+  if (error) console.error(`Failed to release unconfirmed reward ${rewardId}:`, error);
+}

@@ -49,7 +49,7 @@ See [snowflake.md](./snowflake.md).
 - `DEMO_MODE`: keep `false` (see [demo.md](./demo.md)).
 - Optional: `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL`, and the `FEATURE_*` flags (all default off).
 
-Note: `.env.local.example` still lists `SNOWFLAKE_API_ENDPOINT` and `SNOWFLAKE_JWT_TOKEN`; the code does not read them. See [snowflake.md](./snowflake.md) for the variables it does read.
+`.env.local.example` lists every variable the code reads (Snowflake, governance tuning, `NEXT_PUBLIC_IOS_APP_URL`). `SNOWFLAKE_USERNAME` is required: there is no default. See [snowflake.md](./snowflake.md).
 
 ## 6. Smoke test
 

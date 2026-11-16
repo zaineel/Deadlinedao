@@ -18,13 +18,15 @@ interface SnowflakeConfig {
 /**
  * Get Snowflake configuration from environment
  */
-function getSnowflakeConfig(): SnowflakeConfig {
+export function getSnowflakeConfig(): SnowflakeConfig {
   const account = process.env.SNOWFLAKE_ACCOUNT;
-  const username = process.env.SNOWFLAKE_USERNAME || "ZAINEEL";
+  const username = process.env.SNOWFLAKE_USERNAME;
   const warehouse = process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH";
 
   if (!account)
     throw new Error("Missing SNOWFLAKE_ACCOUNT environment variable");
+  if (!username)
+    throw new Error("Missing SNOWFLAKE_USERNAME environment variable");
 
   return { account, username, warehouse };
 }

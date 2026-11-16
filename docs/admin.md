@@ -39,6 +39,12 @@ curl -X POST "$BASE_URL/api/admin/payouts/reconcile" \
 
 The response counts `finalized`, `released`, `waiting`, `manual` and `errors` and lists each outcome. Run it whenever a reward run, approval or review reports `unconfirmed`, and again later for `waiting` rows. `manual` rows need a human to inspect escrow history. Rules are in [payouts.md](./payouts.md).
 
+### Other claimed-but-unconfirmed rows
+
+- Governance voter rewards (`governance_rewards.status = 'unconfirmed'`): `POST /api/admin/governance/reconcile` (admin key, governance flags) with the same rules: landed becomes `paid`, failed on-chain or never landed after blockhash expiry releases the claim, a row with no signature is `manual`.
+- Sponsor matches (`FEATURE_ORGS`) are `sponsor_match` rows in `payouts`, so the payouts reconcile above covers them. Releasing the payout row does not return the org pool reservation: for a `released` sponsor match, check the org's `org_matches`/pool balance by hand.
+- Org withdrawals (`org_withdrawals` with `tx_signature = 'pending'` after an ambiguous send) are NOT auto-reconciled: no signature is recorded, and the pending row blocks another withdrawal for that org. Inspect escrow history for a transfer to the admin wallet of that amount, then set `tx_signature` to the real signature (it landed), or call `org_release_withdrawal(id)` (it did not).
+
 ## Editing goals
 
 `PUT /api/goals/[id]` (admin key) sets a goal's status directly (`active`, `pending_validation`, `completed`, `failed`). It bypasses the payout flow: it moves no money and does not return stakes. Prefer the review queue.
@@ -61,6 +67,7 @@ Registered in `vercel.json`. Vercel sends `Authorization: Bearer $CRON_SECRET`; 
 | `/api/cron/finalize-appeals` | hourly | Moves `rejected_appealable` goals whose 48-hour appeal window closed to `failed`. Runs regardless of the disputes flag. |
 | `/api/cron/deadline-reminders` | every 6 hours | Sends push reminders for goals due soon (flag `FEATURE_PUSH`; 404 when off). |
 | `/api/cron/org-matches` | daily 06:30 | Sponsor-match sweep (flag `FEATURE_ORGS`; 404 when off). |
+| `/api/cron/resolve-disputes` | hourly at :15 | Governance pass: draws panels, resolves due votes, pays voter rewards (flags `FEATURE_GOVERNANCE` and `FEATURE_DISPUTES`; skips when off). |
 
 Manual run example:
 

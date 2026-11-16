@@ -1,4 +1,3 @@
-import { sendPayoutFromEscrow } from './escrow';
 import type { Goal } from '@/types';
 
 /**
@@ -34,52 +33,6 @@ export function computeRewardPayouts(
       amount: Math.floor((g.stake_amount / totalWinnersStake) * totalLosersStake * 1e4) / 1e4,
     }))
     .filter(p => p.amount > 0);
-}
-
-/**
- * Process IMMEDIATE payout for a single completed goal
- * Returns ONLY the original stake - rewards are distributed later after deadline
- *
- * NEW TWO-PHASE PAYOUT SYSTEM:
- * Phase 1 (Immediate): Return original stake when proof approved
- * Phase 2 (At deadline): Distribute rewards from failed stakes pool
- */
-export async function processCompletionPayout(
-  goal: Goal,
-  otherActiveGoalsSameDeadline: Goal[]
-): Promise<PayoutResult> {
-  try {
-    // PHASE 1: Always return only the original stake immediately
-    // Rewards will be calculated and distributed AFTER the deadline
-    const { signature, error } = await sendPayoutFromEscrow(
-      goal.wallet_address,
-      goal.stake_amount
-    );
-
-    if (error) {
-      return {
-        recipient: goal.wallet_address,
-        amount: goal.stake_amount,
-        type: 'original_stake',
-        error: error.message,
-      };
-    }
-
-    return {
-      recipient: goal.wallet_address,
-      amount: goal.stake_amount,
-      type: 'original_stake',
-      signature: signature || undefined,
-    };
-  } catch (error) {
-    console.error('Error processing completion payout:', error);
-    return {
-      recipient: goal.wallet_address,
-      amount: 0,
-      type: 'original_stake',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
 }
 
 /**
