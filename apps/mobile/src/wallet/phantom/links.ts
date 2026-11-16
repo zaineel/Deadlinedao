@@ -2,7 +2,7 @@
  * Pure URL builders / parsers for the Phantom deep-link protocol.
  * https://docs.phantom.com/phantom-deeplinks
  */
-export const PHANTOM_BASE_URL = 'https://phantom.app/ul/v1';
+export const PHANTOM_BASE_URL = 'https://phantom.com/ul/v1';
 
 export type PhantomAction = 'connect' | 'disconnect' | 'signMessage' | 'signAndSendTransaction';
 

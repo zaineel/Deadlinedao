@@ -1,0 +1,7 @@
+[package]
+name = "escrow-core"
+version = "0.1.0"
+edition = "2021"
+description = "EXPERIMENTAL pure state machine for the DeadlineDAO escrow program. No dependencies."
+
+[dependencies]

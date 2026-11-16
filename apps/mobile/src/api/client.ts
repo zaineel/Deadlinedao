@@ -105,9 +105,18 @@ export function createApiClient(opts: ApiClientOptions) {
     },
     submitProof: (input: SubmitProofInput) => request<SubmitProofResponse>('POST', '/api/proofs', { json: input }),
 
-    /** POST /api/goals/share (mobile-backend PR). Unavailable until that lands. */
-    shareGoal: (goalId: string) =>
-      optional(() => request<ShareGoalResponse>('POST', '/api/goals/share', { json: { goalId } })),
+    /**
+     * POST /api/goals/share { goalId, share } -> { success, shared }. Owner-only, completed goals only
+     * (404 also covers "not found / not yours / not completed" and FEATURE_PUSH off).
+     * The public page lives at /p/<goalId>.
+     */
+    shareGoal: (goalId: string, share = true) =>
+      optional(async (): Promise<ShareGoalResponse> => {
+        const res = await request<{ success?: boolean; shared?: boolean }>('POST', '/api/goals/share', {
+          json: { goalId, share },
+        });
+        return { shared: res.shared ?? share, url: `${base}/p/${encodeURIComponent(goalId)}` };
+      }),
     /** POST /api/push/register (behind FEATURE_PUSH). Unavailable when the flag is off. */
     registerPush: (input: PushRegisterInput) =>
       optional(() => request<{ success?: boolean }>('POST', '/api/push/register', { json: input })),

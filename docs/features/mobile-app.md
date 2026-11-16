@@ -4,7 +4,7 @@ Standalone Expo / React Native app in `apps/mobile`. See `apps/mobile/README.md`
 
 ## Design
 
-- **Wallet**: Solana Mobile Wallet Adapter is Android-only, so iOS connects through the Phantom deep-link protocol: `connect`, `signMessage`, `signAndSendTransaction` via `https://phantom.app/ul/v1/...` with an x25519 key exchange and `nacl.box` encrypted payloads (tweetnacl, bs58). Everything sits behind the `WalletProvider` interface (`src/wallet/types.ts`).
+- **Wallet**: Solana Mobile Wallet Adapter is Android-only, so iOS connects through the Phantom deep-link protocol: `connect`, `signMessage`, `signAndSendTransaction` via `https://phantom.com/ul/v1/...` with an x25519 key exchange and `nacl.box` encrypted payloads (tweetnacl, bs58). Everything sits behind the `WalletProvider` interface (`src/wallet/types.ts`).
 - **Auth**: `POST /api/auth/nonce` -> wallet signs the exact message from `buildSignInMessage` (the app rebuilds it locally and refuses to sign anything else) -> `POST /api/auth/verify` -> bearer token stored in the iOS Keychain (expo-secure-store).
 - **Stake**: `POST /api/goals/create` returns a base64 legacy transaction; Phantom signs and sends it; `POST /api/goals/confirm` verifies it on chain. Demo mode (no transaction in the response) confirms with a `demo_tx_` signature.
 - **Proof**: image picked with expo-image-picker -> `POST /api/upload/proof` -> wallet signs `DeadlineDAO:submit-proof\ngoal:..\nts:..\nhash:<sha256 hex of "text\nimageUrl">` -> `POST /api/proofs`.

@@ -25,10 +25,10 @@ export default function GoalDetail() {
   const share = async () => {
     setNotice(null);
     try {
-      // Capability check: the share endpoint ships in the mobile-backend PR; tolerate 404.
+      // 404 = goal not completed / not yours, or sharing disabled server-side.
       const res = await api.shareGoal(id);
       if (!res.available) {
-        setNotice('Sharing is not available on this server yet.');
+        setNotice('Only completed goals can be shared (or sharing is disabled on this server).');
         return;
       }
       const url = res.data.url;

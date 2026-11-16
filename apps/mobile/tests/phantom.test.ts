@@ -40,7 +40,7 @@ describe('phantom links', () => {
       redirectLink: 'deadlinedao://phantom/connect',
       cluster: 'devnet',
     });
-    expect(url.startsWith('https://phantom.app/ul/v1/connect?')).toBe(true);
+    expect(url.startsWith('https://phantom.com/ul/v1/connect?')).toBe(true);
     expect(query(url)).toEqual({
       app_url: 'https://app.example.com',
       dapp_encryption_public_key: 'DAPPKEY',
@@ -56,7 +56,7 @@ describe('phantom links', () => {
       redirectLink: 'deadlinedao://phantom/signMessage',
       payload: 'P',
     });
-    expect(url.startsWith('https://phantom.app/ul/v1/signMessage?')).toBe(true);
+    expect(url.startsWith('https://phantom.com/ul/v1/signMessage?')).toBe(true);
     expect(query(url)).toEqual({
       dapp_encryption_public_key: 'K',
       nonce: 'N',

@@ -275,10 +275,51 @@ export async function finalizePayout(payoutId: string, txSignature: string): Pro
   return { error: error as Error | null };
 }
 
-/** Release a claim after a transfer definitively failed, so it can be retried. */
-export async function releasePayout(payoutId: string): Promise<void> {
-  const { error } = await supabase.from('payouts').delete().eq('id', payoutId).eq('tx_signature', 'pending');
+/**
+ * Release a claim after a transfer DEFINITIVELY failed (or was proven never to
+ * land), so it can be retried. Only deletes the row while it still holds
+ * `expectedSignature` ('pending' by default, or 'unconfirmed:<sig>' when
+ * reconciling), so a finalized payout can never be deleted.
+ */
+export async function releasePayout(payoutId: string, expectedSignature: string = 'pending'): Promise<void> {
+  const { error } = await supabase.from('payouts').delete().eq('id', payoutId).eq('tx_signature', expectedSignature);
   if (error) console.error(`Failed to release payout claim ${payoutId}:`, error);
+}
+
+/**
+ * Mark a claim as sent-but-unconfirmed ('unconfirmed:<signature>'). The row is
+ * kept (never released) so a retry cannot double-pay; reconcile resolves it.
+ */
+export async function markPayoutUnconfirmed(payoutId: string, signature: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from('payouts')
+    .update({ tx_signature: `unconfirmed:${signature}` })
+    .eq('id', payoutId)
+    .eq('tx_signature', 'pending');
+  if (error) console.error(`CRITICAL: payout ${payoutId} is unconfirmed (${signature}) and could not be marked:`, error);
+  return { error: error as Error | null };
+}
+
+/** Payout rows that are claimed but not finalized ('pending' or 'unconfirmed:*'). */
+export async function getUnresolvedPayouts(
+  payoutId?: string,
+  limit: number = 50
+): Promise<{ data: Payout[] | null; error: Error | null }> {
+  try {
+    let query = supabase
+      .from('payouts')
+      .select('*')
+      .or('tx_signature.eq.pending,tx_signature.like.unconfirmed:%')
+      .order('created_at', { ascending: true })
+      .limit(limit);
+    if (payoutId) query = query.eq('id', payoutId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data as Payout[], error: null };
+  } catch (error) {
+    console.error('Error fetching unresolved payouts:', error);
+    return { data: null, error: error as Error };
+  }
 }
 
 /**

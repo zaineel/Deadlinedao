@@ -40,6 +40,7 @@
     "code",
     "scripts",
     ".claude",
-    "apps/mobile"
+    "apps/mobile",
+    "programs"
   ]
 }

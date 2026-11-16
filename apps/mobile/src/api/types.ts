@@ -69,6 +69,7 @@ export interface SubmitProofResponse {
 }
 
 export interface ShareGoalResponse {
+  shared?: boolean;
   url?: string;
   message?: string;
 }

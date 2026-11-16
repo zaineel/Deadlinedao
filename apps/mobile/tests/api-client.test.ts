@@ -73,8 +73,17 @@ describe('api client request shaping', () => {
     const api500 = createApiClient({ baseUrl: 'https://x.test', fetchImpl: mockFetch(500, { error: 'boom' }) as unknown as typeof fetch });
     await expect(api500.shareGoal('g')).rejects.toBeInstanceOf(ApiError);
 
-    const apiOk = createApiClient({ baseUrl: 'https://x.test', fetchImpl: mockFetch(200, { url: 'https://s' }) as unknown as typeof fetch });
-    expect(await apiOk.shareGoal('g')).toEqual({ available: true, data: { url: 'https://s' } });
+    const apiOk = createApiClient({ baseUrl: 'https://x.test', fetchImpl: mockFetch(200, { success: true, shared: true }) as unknown as typeof fetch });
+    expect(await apiOk.shareGoal('g')).toEqual({ available: true, data: { shared: true, url: 'https://x.test/p/g' } });
+  });
+
+  it('sends the share body the web route requires ({ goalId, share })', async () => {
+    const f = mockFetch(200, { success: true, shared: true });
+    const api = createApiClient({ baseUrl: 'https://x.test', fetchImpl: f as unknown as typeof fetch });
+    await api.shareGoal('11111111-1111-4111-8111-111111111111');
+    const [url, init] = f.mock.calls[0] as unknown as [string, { body: string }];
+    expect(url).toBe('https://x.test/api/goals/share');
+    expect(JSON.parse(init.body)).toEqual({ goalId: '11111111-1111-4111-8111-111111111111', share: true });
   });
 
   it('uploads proofs as multipart form data', async () => {
