@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { parseValue, uuidSchema } from '@/lib/validation/schemas';
 
 // Vercel configuration for R2 uploads
 export const runtime = 'nodejs';
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const goalId = formData.get('goalId') as string;
+    const goalIdRaw = formData.get('goalId');
 
     console.log('[Upload API] File received:', file?.name, 'Size:', file?.size);
 
@@ -49,12 +50,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!goalId) {
-      return NextResponse.json(
-        { error: 'Goal ID is required' },
-        { status: 400 }
-      );
-    }
+    const goalIdResult = parseValue(goalIdRaw, uuidSchema);
+    if (!goalIdResult.ok) return goalIdResult.response;
+    const goalId = goalIdResult.data;
 
     // Validate file type
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
@@ -75,12 +73,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate unique filename
-    const fileExtension = file.name.split('.').pop();
-    const fileName = `proofs/${goalId}/${randomUUID()}.${fileExtension}`;
-
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+
+    // file.type is client-asserted: confirm the actual bytes are a JPEG or PNG
+    const isPng = buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const isJpeg = buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    if (!isPng && !isJpeg) {
+      return NextResponse.json(
+        { error: 'File content is not a valid JPEG or PNG image' },
+        { status: 400 }
+      );
+    }
+
+    // Extension comes from the verified content, never from the user's filename
+    const fileExtension = isPng ? 'png' : 'jpg';
+    const fileName = `proofs/${goalId}/${randomUUID()}.${fileExtension}`;
 
     // Upload to Cloudflare R2
     const bucket = process.env.CLOUDFLARE_R2_BUCKET;
@@ -94,7 +103,7 @@ export async function POST(request: NextRequest) {
       Bucket: bucket,
       Key: fileName,
       Body: buffer,
-      ContentType: file.type,
+      ContentType: isPng ? 'image/png' : 'image/jpeg',
       Metadata: {
         goalId,
         uploadedAt: new Date().toISOString(),
@@ -118,22 +127,8 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Upload API] Error uploading file:', error);
     console.error('[Upload API] Error stack:', error.stack);
-
-    // Return detailed error for debugging
     return NextResponse.json(
-      {
-        error: 'Failed to upload file',
-        details: error.message,
-        errorType: error.constructor.name,
-        // Include env var status (without values)
-        envCheck: {
-          hasEndpoint: !!process.env.CLOUDFLARE_R2_ENDPOINT,
-          hasAccessKey: !!process.env.CLOUDFLARE_R2_ACCESS_KEY,
-          hasSecretKey: !!process.env.CLOUDFLARE_R2_SECRET_KEY,
-          hasBucket: !!process.env.CLOUDFLARE_R2_BUCKET,
-          hasPublicUrl: !!process.env.CLOUDFLARE_R2_PUBLIC_URL,
-        }
-      },
+      { error: 'Failed to upload file' },
       { status: 500 }
     );
   }

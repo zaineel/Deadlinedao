@@ -214,6 +214,72 @@ export async function getPayoutsByType(
   }
 }
 
+export type PayoutKind = 'completion_reward' | 'original_stake';
+
+/**
+ * Reserve a payout BEFORE sending funds. Inserts a placeholder row
+ * (tx_signature = 'pending'); with the unique (goal_id, payout_type) index from
+ * supabase-migrations/001_payout_safety.sql, only one caller can ever claim a
+ * given goal+type, so a retry or concurrent request cannot pay twice.
+ *
+ * claimed=false means this goal+type was already claimed (paid or in flight).
+ */
+export async function claimPayout(
+  goalId: string,
+  walletAddress: string,
+  amount: number,
+  payoutType: PayoutKind
+): Promise<{ claimed: boolean; payoutId: string | null; error: Error | null }> {
+  try {
+    const { count, error: checkError } = await supabase
+      .from('payouts')
+      .select('id', { count: 'exact', head: true })
+      .eq('goal_id', goalId)
+      .eq('payout_type', payoutType);
+    if (checkError) throw checkError;
+    if ((count ?? 0) > 0) return { claimed: false, payoutId: null, error: null };
+
+    const { data, error } = await supabase
+      .from('payouts')
+      .insert({
+        goal_id: goalId,
+        wallet_address: walletAddress,
+        amount,
+        tx_signature: 'pending',
+        payout_type: payoutType,
+      })
+      .select('id')
+      .single();
+
+    // 23505 = unique violation: a concurrent request claimed it first
+    if (error && (error as { code?: string }).code === '23505') {
+      return { claimed: false, payoutId: null, error: null };
+    }
+    if (error) throw error;
+
+    return { claimed: true, payoutId: data.id as string, error: null };
+  } catch (error) {
+    console.error('Error claiming payout:', error);
+    return { claimed: false, payoutId: null, error: error as Error };
+  }
+}
+
+/** Record the on-chain signature once the transfer succeeded. */
+export async function finalizePayout(payoutId: string, txSignature: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from('payouts')
+    .update({ tx_signature: txSignature })
+    .eq('id', payoutId);
+  if (error) console.error(`CRITICAL: payout ${payoutId} was sent (${txSignature}) but could not be recorded:`, error);
+  return { error: error as Error | null };
+}
+
+/** Release a claim after a transfer definitively failed, so it can be retried. */
+export async function releasePayout(payoutId: string): Promise<void> {
+  const { error } = await supabase.from('payouts').delete().eq('id', payoutId).eq('tx_signature', 'pending');
+  if (error) console.error(`Failed to release payout claim ${payoutId}:`, error);
+}
+
 /**
  * Check if a goal has been paid out
  */

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
+import { isDemoMode } from '@/lib/config/demo';
+import { parseBody, createGoalSchema } from '@/lib/validation/schemas';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -16,35 +18,11 @@ const connection = new Connection(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const {
-      title,
-      description,
-      deadline,
-      category,
-      stakeAmount,
-      walletAddress,
-      demoMode
-    } = body;
+    const parsed = await parseBody(request, createGoalSchema);
+    if (!parsed.ok) return parsed.response;
+    const { title, description, deadline, category, stakeAmount, walletAddress } = parsed.data;
 
-    // Validate input
-    if (!title || !description || !deadline || !category || !stakeAmount || !walletAddress) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    // Validate wallet address
-    let userPublicKey: PublicKey;
-    try {
-      userPublicKey = new PublicKey(walletAddress);
-    } catch (error) {
-      return NextResponse.json(
-        { error: 'Invalid wallet address' },
-        { status: 400 }
-      );
-    }
+    const userPublicKey = new PublicKey(walletAddress);
 
     // Get escrow wallet address from env
     const escrowPrivateKeyArray = JSON.parse(process.env.SOLANA_ESCROW_PRIVATE_KEY || '[]');
@@ -61,7 +39,7 @@ export async function POST(request: NextRequest) {
     const escrowPublicKey = escrowKeypair.publicKey;
 
     // Convert SOL to lamports
-    const lamports = Math.floor(parseFloat(stakeAmount) * LAMPORTS_PER_SOL);
+    const lamports = Math.round(stakeAmount * LAMPORTS_PER_SOL);
 
     // Create the escrow transaction
     const transaction = new Transaction().add(
@@ -92,7 +70,7 @@ export async function POST(request: NextRequest) {
         description,
         deadline: new Date(deadline).toISOString(),
         category,
-        stake_amount: parseFloat(stakeAmount),
+        stake_amount: stakeAmount,
         stake_tx_signature: 'pending',
         status: 'pending_validation',
       })
@@ -102,13 +80,13 @@ export async function POST(request: NextRequest) {
     if (dbError) {
       console.error('Database error:', dbError);
       return NextResponse.json(
-        { error: 'Failed to save goal to database', details: dbError.message },
+        { error: 'Failed to save goal to database' },
         { status: 500 }
       );
     }
 
     // If demo mode, skip transaction creation
-    if (demoMode === true || process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+    if (isDemoMode()) {
       return NextResponse.json({
         success: true,
         goalId: goalData.id,
@@ -128,7 +106,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error creating goal:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

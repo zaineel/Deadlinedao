@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
-import { distributeDeadlineRewards } from '@/lib/solana/payouts';
-import { createPayouts } from '@/lib/supabase';
+import { computeRewardPayouts, sendPayoutFromEscrow } from '@/lib/solana';
+import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase';
+import { requireAdmin } from '@/lib/auth/admin';
+import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
+import { z } from 'zod';
 
 // Vercel configuration
 export const runtime = 'nodejs';
@@ -22,9 +25,13 @@ export const dynamic = 'force-dynamic';
  * 5. Returns detailed breakdown
  */
 export async function POST(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
-    const body = await request.json();
-    const { deadline } = body;
+    const parsedBody = await parseBody(request, z.object({ deadline: dateOnlySchema }));
+    if (!parsedBody.ok) return parsedBody.response;
+    const { deadline } = parsedBody.data;
 
     // Validate deadline
     if (!deadline) {
@@ -36,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     // Parse and validate date format
     const deadlineDate = new Date(deadline);
-    if (isNaN(deadlineDate.getTime())) {
+    if (typeof deadline !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(deadline) || isNaN(deadlineDate.getTime())) {
       return NextResponse.json(
         { error: 'Invalid date format. Use YYYY-MM-DD' },
         { status: 400 }
@@ -109,65 +116,71 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Admin] Total completed stake: ${totalCompletedStake} SOL`);
     console.log(`[Admin] Total failed stake: ${totalFailedStake} SOL`);
-    console.log(`[Admin] Calling distributeDeadlineRewards...`);
+    // Distribute rewards (Phase 2), one payout per winning goal.
+    // Each payout is CLAIMED in the database before SOL is sent, so running
+    // this twice (or two admins at once) can never pay the same goal twice.
+    const planned = computeRewardPayouts(completedGoals, failedGoals);
+    const outcomes: Array<{
+      goalId: string;
+      recipient: string;
+      amount: number;
+      status: 'success' | 'already_distributed' | 'failed';
+      signature?: string;
+      error?: string;
+    }> = [];
 
-    // Distribute rewards (Phase 2)
-    const result = await distributeDeadlineRewards(completedGoals, failedGoals);
+    for (const p of planned) {
+      const claim = await claimPayout(p.goalId, p.recipient, p.amount, 'completion_reward');
 
-    console.log(`[Admin] Distribution complete. Successful payouts: ${result.payouts.filter(p => p.signature).length}`);
-
-    // Record successful payouts in database
-    if (result.payouts.length > 0) {
-      const payoutRecords = result.payouts
-        .filter(p => p.signature) // Only record successful payouts
-        .map(payout => {
-          // Find the goal for this recipient
-          const goal = completedGoals.find(g => g.wallet_address === payout.recipient);
-
-          return {
-            goal_id: goal?.id || 'unknown',
-            wallet_address: payout.recipient,
-            amount: payout.amount,
-            tx_signature: payout.signature!,
-            payout_type: payout.type,
-          };
-        });
-
-      if (payoutRecords.length > 0) {
-        const { error: payoutError } = await createPayouts(payoutRecords);
-
-        if (payoutError) {
-          console.error('[Admin] Failed to record payouts in database:', payoutError);
-        } else {
-          console.log(`[Admin] Recorded ${payoutRecords.length} payouts in database`);
-        }
+      if (claim.error) {
+        outcomes.push({ ...p, status: 'failed', error: 'Could not reserve payout; not sent' });
+        continue;
       }
+      if (!claim.claimed) {
+        outcomes.push({ ...p, status: 'already_distributed' });
+        continue;
+      }
+
+      const { signature, error } = await sendPayoutFromEscrow(p.recipient, p.amount);
+      if (!signature || error) {
+        await releasePayout(claim.payoutId!);
+        outcomes.push({ ...p, status: 'failed', error: error?.message || 'Transfer failed' });
+        continue;
+      }
+
+      await finalizePayout(claim.payoutId!, signature);
+      outcomes.push({ ...p, status: 'success', signature });
     }
 
-    // Calculate reward details for response
-    const rewardBreakdown = completedGoals.map(goal => {
-      const payout = result.payouts.find(p => p.recipient === goal.wallet_address);
-      const proportion = goal.stake_amount / totalCompletedStake;
-      const reward = proportion * totalFailedStake;
+    const succeeded = outcomes.filter(o => o.status === 'success');
+    const alreadyDone = outcomes.filter(o => o.status === 'already_distributed');
+    const failedOutcomes = outcomes.filter(o => o.status === 'failed');
+    console.log(`[Admin] Rewards: ${succeeded.length} sent, ${alreadyDone.length} already distributed, ${failedOutcomes.length} failed`);
 
+    const rewardBreakdown = outcomes.map(o => {
+      const goal = completedGoals.find(g => g.id === o.goalId)!;
       return {
-        goalId: goal.id,
+        goalId: o.goalId,
         goalDescription: goal.description,
-        wallet: goal.wallet_address,
+        wallet: o.recipient,
         originalStake: goal.stake_amount,
-        rewardAmount: reward,
-        totalPayout: payout?.amount || 0,
-        proportion: (proportion * 100).toFixed(2) + '%',
-        status: payout?.signature ? 'success' : 'failed',
-        signature: payout?.signature || null,
-        error: payout?.error || null,
+        rewardAmount: o.amount,
+        totalPayout: o.status === 'success' ? o.amount : 0,
+        proportion: ((goal.stake_amount / totalCompletedStake) * 100).toFixed(2) + '%',
+        status: o.status === 'failed' ? 'failed' : 'success',
+        signature: o.signature || null,
+        error: o.error || (o.status === 'already_distributed' ? 'Already distributed earlier' : null),
       };
     });
+    const sentTotal = succeeded.reduce((sum, o) => sum + o.amount, 0);
 
     // Return comprehensive results
     return NextResponse.json({
-      success: true,
-      message: `Successfully distributed ${totalFailedStake} SOL in rewards to ${completedGoals.length} winners`,
+      success: failedOutcomes.length === 0,
+      message: failedOutcomes.length === 0
+        ? `Distributed ${sentTotal.toFixed(4)} SOL to ${succeeded.length} winners` +
+          (alreadyDone.length ? ` (${alreadyDone.length} already paid earlier)` : '')
+        : `${failedOutcomes.length} of ${outcomes.length} payouts failed. Safe to re-run: paid goals are skipped.`,
       stats: {
         deadline,
         totalGoals: goalsWithDeadline.length,
@@ -176,19 +189,18 @@ export async function POST(request: NextRequest) {
         active: goalsWithDeadline.filter(g => g.status === 'active').length,
         totalCompletedStake,
         totalFailedStake,
-        rewardsDistributed: totalFailedStake,
+        rewardsDistributed: sentTotal,
       },
       distribution: {
-        successfulPayouts: result.payouts.filter(p => p.signature).length,
-        failedPayouts: result.payouts.filter(p => p.error).length,
-        totalWinnersStake: result.totalWinnersStake,
-        totalLosersStake: result.totalLosersStake,
+        successfulPayouts: succeeded.length,
+        alreadyDistributed: alreadyDone.length,
+        failedPayouts: failedOutcomes.length,
+        totalWinnersStake: totalCompletedStake,
+        totalLosersStake: totalFailedStake,
       },
       rewards: rewardBreakdown,
-      errors: result.errors.length > 0 ? result.errors : null,
-      solanaExplorer: result.payouts
-        .filter(p => p.signature)
-        .map(p => `https://explorer.solana.com/tx/${p.signature}?cluster=devnet`),
+      errors: failedOutcomes.length > 0 ? failedOutcomes.map(o => `Failed to pay ${o.recipient}: ${o.error}`) : null,
+      solanaExplorer: succeeded.map(o => `https://explorer.solana.com/tx/${o.signature}?cluster=devnet`),
     }, { status: 200 });
 
   } catch (error) {
@@ -196,7 +208,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to distribute rewards',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
@@ -208,16 +219,14 @@ export async function POST(request: NextRequest) {
  * Preview what would be distributed without actually executing
  */
 export async function GET(request: NextRequest) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const searchParams = request.nextUrl.searchParams;
-    const deadline = searchParams.get('deadline');
-
-    if (!deadline) {
-      return NextResponse.json(
-        { error: 'Deadline parameter is required (format: YYYY-MM-DD)' },
-        { status: 400 }
-      );
-    }
+    const deadlineResult = parseValue(searchParams.get('deadline'), dateOnlySchema);
+    if (!deadlineResult.ok) return deadlineResult.response;
+    const deadline = deadlineResult.data;
 
     // Fetch all goals
     const { data: allGoals, error: goalsError } = await getAllGoals();

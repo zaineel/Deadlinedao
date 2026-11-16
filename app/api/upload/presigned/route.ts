@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateProofUploadUrl } from '@/lib/cloudflare';
+import { parseBody, presignedUploadSchema } from '@/lib/validation/schemas';
 
 /**
  * POST /api/upload/presigned
@@ -7,34 +8,9 @@ import { generateProofUploadUrl } from '@/lib/cloudflare';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-
-    const {
-      filename,
-      goal_id,
-      user_id,
-    } = body;
-
-    // Validate required fields
-    if (!filename || !goal_id || !user_id) {
-      return NextResponse.json(
-        { error: 'Missing required fields: filename, goal_id, user_id' },
-        { status: 400 }
-      );
-    }
-
-    // Validate filename is an image
-    const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-    const hasValidExtension = validExtensions.some(ext =>
-      filename.toLowerCase().endsWith(ext)
-    );
-
-    if (!hasValidExtension) {
-      return NextResponse.json(
-        { error: 'Invalid file type. Only images are allowed (jpg, png, gif, webp)' },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(request, presignedUploadSchema);
+    if (!parsed.ok) return parsed.response;
+    const { filename, goal_id, user_id } = parsed.data;
 
     // Generate presigned URL
     const presignedUrl = await generateProofUploadUrl(
@@ -65,7 +41,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Generate presigned URL error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate upload URL' },
+      { error: 'Failed to generate upload URL' },
       { status: 500 }
     );
   }

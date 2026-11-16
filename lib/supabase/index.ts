@@ -10,6 +10,7 @@ export {
   getActiveGoals,
   getExpiredGoals,
   updateGoalStatus,
+  transitionGoalStatus,
   updateGoal,
   deleteGoal,
   getGoalsByCategory,
@@ -44,6 +45,9 @@ export {
   getRecentPayouts,
   getPayoutsByType,
   hasPayoutForGoal,
+  claimPayout,
+  finalizePayout,
+  releasePayout,
   getWalletPayoutStats,
 } from './payouts';
 

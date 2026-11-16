@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { parseValue, walletAddressSchema } from '@/lib/validation/schemas';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -10,14 +11,9 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const wallet = searchParams.get('wallet');
-
-    if (!wallet) {
-      return NextResponse.json(
-        { error: 'Wallet address is required' },
-        { status: 400 }
-      );
-    }
+    const walletResult = parseValue(searchParams.get('wallet'), walletAddressSchema);
+    if (!walletResult.ok) return walletResult.response;
+    const wallet = walletResult.data;
 
     // Fetch goals for the wallet
     const { data: goals, error } = await supabase
@@ -29,7 +25,7 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('Database error:', error);
       return NextResponse.json(
-        { error: 'Failed to fetch goals', details: error.message },
+        { error: 'Failed to fetch goals' },
         { status: 500 }
       );
     }
@@ -39,7 +35,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching goals:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

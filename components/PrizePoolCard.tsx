@@ -28,6 +28,17 @@ interface PrizePoolData {
       maxPayout: number;
     }>;
   };
+  goals: {
+    active: Array<{
+      id: string;
+      title: string;
+      wallet: string;
+      stake: number;
+      category: string;
+    }>;
+    completed: number;
+    failed: number;
+  };
 }
 
 interface PrizePoolCardProps {

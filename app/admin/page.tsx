@@ -22,6 +22,7 @@ import {
   Target
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ReviewQueue } from '@/components/admin/ReviewQueue';
 
 interface PreviewData {
   preview: boolean;
@@ -87,6 +88,7 @@ export default function AdminPage() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [result, setResult] = useState<DistributionResult | null>(null);
   const [error, setError] = useState('');
+  const [adminKey, setAdminKey] = useState('');
 
   const handlePreview = async () => {
     setLoading(true);
@@ -94,7 +96,9 @@ export default function AdminPage() {
     setResult(null);
 
     try {
-      const response = await fetch(`/api/admin/trigger-rewards?deadline=${deadline}`);
+      const response = await fetch(`/api/admin/trigger-rewards?deadline=${encodeURIComponent(deadline)}`, {
+        headers: { 'x-admin-key': adminKey },
+      });
       const data = await response.json();
 
       if (response.ok) {
@@ -122,7 +126,7 @@ export default function AdminPage() {
     try {
       const response = await fetch('/api/admin/trigger-rewards', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
         body: JSON.stringify({ deadline }),
       });
 
@@ -191,6 +195,18 @@ export default function AdminPage() {
                       type="date"
                       value={deadline}
                       onChange={(e) => setDeadline(e.target.value)}
+                      className="bg-gray-800 border-gray-700 text-white mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="adminKey" className="text-gray-300">Admin Key</Label>
+                    <Input
+                      id="adminKey"
+                      type="password"
+                      autoComplete="off"
+                      value={adminKey}
+                      onChange={(e) => setAdminKey(e.target.value)}
                       className="bg-gray-800 border-gray-700 text-white mt-1"
                     />
                   </div>
@@ -488,6 +504,8 @@ export default function AdminPage() {
               </Card>
             </motion.div>
           )}
+
+          <ReviewQueue adminKey={adminKey} />
         </div>
       </main>
     </div>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseValue, walletAddressSchema } from '@/lib/validation/schemas';
 import { getUserStats, getGoalsByWallet, getPayoutsByWallet } from '@/lib/supabase';
 
 /**
@@ -7,10 +8,12 @@ import { getUserStats, getGoalsByWallet, getPayoutsByWallet } from '@/lib/supaba
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { wallet: string } }
+  { params }: { params: Promise<{ wallet: string }> }
 ) {
   try {
-    const { wallet } = params;
+    const walletResult = parseValue((await params).wallet, walletAddressSchema);
+    if (!walletResult.ok) return walletResult.response;
+    const wallet = walletResult.data;
 
     // Get user stats
     const { data: userStats, error: statsError } = await getUserStats(wallet);

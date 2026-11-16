@@ -7,6 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { buildProofMessage, proofPayload } from '@/lib/auth/proof-message';
 import { Loader2, Upload, CheckCircle2, XCircle, Image as ImageIcon } from 'lucide-react';
 
 interface SubmitProofModalProps {
@@ -18,6 +20,7 @@ interface SubmitProofModalProps {
 }
 
 export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSuccess }: SubmitProofModalProps) {
+  const { signMessage } = useWallet();
   const [description, setDescription] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -72,7 +75,24 @@ export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSucc
         imageUrl = uploadData.url;
       }
 
-      // Step 2: Submit proof and get AI validation
+      // Step 2: Sign the submission with the wallet to prove ownership
+      if (!signMessage) {
+        throw new Error('Your wallet does not support message signing');
+      }
+      const timestamp = Date.now();
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(proofPayload(description, imageUrl)) as BufferSource
+      );
+      const payloadHash = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      const signatureBytes = await signMessage(
+        new TextEncoder().encode(buildProofMessage(goalId, timestamp, payloadHash))
+      );
+      const signature = btoa(String.fromCharCode(...signatureBytes));
+
+      // Step 3: Submit proof and get AI validation
       const proofResponse = await fetch('/api/proofs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,6 +100,8 @@ export function SubmitProofModal({ goalId, goalTitle, open, onOpenChange, onSucc
           goal_id: goalId,
           text_description: description,
           image_url: imageUrl,
+          timestamp,
+          signature,
         }),
       });
 

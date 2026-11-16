@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
+import { verifyStakeTransaction } from '@/lib/solana/escrow';
+import { isDemoMode } from '@/lib/config/demo';
+import { parseBody, confirmGoalSchema } from '@/lib/validation/schemas';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -16,29 +19,44 @@ const connection = new Connection(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { goalId, signature } = body;
+    const parsed = await parseBody(request, confirmGoalSchema);
+    if (!parsed.ok) return parsed.response;
+    const { goalId, signature } = parsed.data;
 
-    if (!goalId || !signature) {
-      return NextResponse.json(
-        { error: 'Missing goalId or signature' },
-        { status: 400 }
-      );
+    // Load the goal so we can verify the on-chain transfer against it
+    const { data: goal, error: goalError } = await supabase
+      .from('goals')
+      .select('id, wallet_address, stake_amount, status')
+      .eq('id', goalId)
+      .single();
+
+    if (goalError || !goal) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+    if (goal.status !== 'pending_validation') {
+      return NextResponse.json({ error: 'Goal is not awaiting stake confirmation' }, { status: 409 });
     }
 
-    // Verify transaction on-chain
-    let confirmed = false;
-    try {
-      const status = await connection.getSignatureStatus(signature);
-      confirmed = status?.value?.confirmationStatus === 'confirmed' ||
-                  status?.value?.confirmationStatus === 'finalized';
-    } catch (error) {
-      console.error('Error checking transaction status:', error);
+    const isDemoSignature = isDemoMode() && signature.startsWith('demo_tx_');
+
+    // Replay protection: a signature may only back one goal
+    const { data: existing } = await supabase
+      .from('goals')
+      .select('id')
+      .eq('stake_tx_signature', signature)
+      .maybeSingle();
+    if (existing && !isDemoSignature) {
+      return NextResponse.json({ error: 'Transaction already used' }, { status: 409 });
     }
 
-    if (!confirmed) {
+    // Verify on-chain: user -> escrow, for at least the stake amount
+    const { valid, error: verifyError } = isDemoSignature
+      ? { valid: true, error: null }
+      : await verifyStakeTransaction(signature, Number(goal.stake_amount), goal.wallet_address);
+
+    if (!valid) {
       return NextResponse.json(
-        { error: 'Transaction not confirmed yet. Please wait and try again.' },
+        { error: verifyError?.message || 'Stake transaction could not be verified. Please wait and try again.' },
         { status: 400 }
       );
     }
@@ -51,13 +69,14 @@ export async function POST(request: NextRequest) {
         stake_tx_signature: signature,
       })
       .eq('id', goalId)
+      .eq('status', 'pending_validation')
       .select()
       .single();
 
     if (error) {
       console.error('Database error:', error);
       return NextResponse.json(
-        { error: 'Failed to update goal', details: error.message },
+        { error: 'Failed to update goal' },
         { status: 500 }
       );
     }
@@ -71,7 +90,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error confirming transaction:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error.message },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
