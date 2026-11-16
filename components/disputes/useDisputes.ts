@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useSession } from '@/components/auth/SessionProvider';
 
 export interface AppealableGoal {
   goalId: string;
@@ -28,15 +29,16 @@ interface DisputesState {
 
 const OFF: DisputesState = { enabled: false, needsSignIn: false, escrowAddress: null, appealable: [], disputes: [] };
 
-/** Loads the wallet's disputes and signs in with the wallet (free message signature) on request. */
+/** Loads the wallet's disputes and signs in through the shared session on request. */
 export function useDisputes(refreshKey: unknown) {
-  const { publicKey, signMessage } = useWallet();
+  const { publicKey } = useWallet();
+  const session = useSession();
   const [state, setState] = useState<DisputesState>(OFF);
 
   const load = useCallback(async () => {
     if (!publicKey) return setState(OFF);
     try {
-      const res = await fetch('/api/disputes');
+      const res = await fetch('/api/disputes', { credentials: 'include' });
       if (res.status === 404) return setState(OFF);
       if (res.status === 401) return setState({ ...OFF, enabled: true, needsSignIn: true });
       if (!res.ok) return setState(OFF);
@@ -57,27 +59,12 @@ export function useDisputes(refreshKey: unknown) {
     load();
   }, [load, refreshKey]);
 
+  // One shared sign-in for the whole app; reload once the session is established.
   const signIn = useCallback(async (): Promise<boolean> => {
-    if (!publicKey || !signMessage) return false;
-    const wallet = publicKey.toString();
-    const nonceRes = await fetch('/api/auth/nonce', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet }),
-    });
-    if (!nonceRes.ok) return false;
-    const { nonce, issuedAt, message } = await nonceRes.json();
-    const bytes = await signMessage(new TextEncoder().encode(message));
-    const signature = btoa(String.fromCharCode(...bytes));
-    const verifyRes = await fetch('/api/auth/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet, nonce, issuedAt, signature }),
-    });
-    if (!verifyRes.ok) return false;
-    await load();
-    return true;
-  }, [publicKey, signMessage, load]);
+    const ok = await session.signIn();
+    if (ok) await load();
+    return ok;
+  }, [session, load]);
 
   return { ...state, reload: load, signIn };
 }

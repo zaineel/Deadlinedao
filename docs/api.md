@@ -76,6 +76,7 @@ Sessions are needed by the disputes, teams, orgs and push features and by `POST 
 | `POST /api/admin/payouts/reconcile` | optional `{payoutId?: uuid}` (strict) | `{success, checked, finalized, released, waiting, manual, errors, outcomes[]}` |
 | `GET /api/admin/disputes` | (flag `disputes`) | `{success, count, items}` open disputes |
 | `POST /api/admin/disputes` | (flag `disputes`) `{disputeId, decision:'overturn'|'uphold'}` | resolves an appeal; no-op if already resolved |
+| `POST /api/admin/governance/reconcile` | (flags `governance` and `disputes`) none | Resolves `unconfirmed` governance voter rewards: `{success, checked, finalized, released, waiting, manual, errors, outcomes[]}` |
 | `POST /api/admin/team-settlement` | (flag `teams`) see Teams below | |
 | `POST /api/admin/org-matches` | (flag `orgs`) none | `{success, summary}` runs the sponsor-match sweep |
 

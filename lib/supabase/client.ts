@@ -32,6 +32,10 @@ export type Database = {
           stake_tx_signature: string;
           status: GoalStatus;
           appeal_deadline?: string | null;
+          /** 004_teams: set only for team member goals. */
+          team_goal_id?: string | null;
+          /** 006_push_and_share: owner opted into the public share page. */
+          share_public?: boolean;
           category: 'learning' | 'work' | 'health';
           created_at: string;
           updated_at: string;

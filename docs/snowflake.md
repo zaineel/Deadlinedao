@@ -27,7 +27,7 @@ DESC USER <your_username>;   -- confirm RSA_PUBLIC_KEY_FP is set
 | Variable | Notes |
 | --- | --- |
 | `SNOWFLAKE_ACCOUNT` | Required. Account identifier, `orgname-accountname` form (or the legacy locator with region). |
-| `SNOWFLAKE_USERNAME` | The user that holds the public key. The code has a hard-coded fallback left from the original developer; always set your own. |
+| `SNOWFLAKE_USERNAME` | The user that holds the public key. Required: there is no fallback, and a missing value fails with a clear config error. |
 | `SNOWFLAKE_WAREHOUSE` | Defaults to `COMPUTE_WH`. |
 | `SNOWFLAKE_PRIVATE_KEY` | Base64 of the whole PEM file, BEGIN/END lines included: `base64 < .snowflake-keys/rsa_key.p8 \| tr -d '\n'`. If unset, the code falls back to `.snowflake-keys/rsa_key.p8` on disk (local development only; use the env var on Vercel). |
 

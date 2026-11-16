@@ -40,7 +40,6 @@ export type { StakeResult, StakeStatus } from './staking';
 
 // Payout and Redistribution
 export {
-  processCompletionPayout,
   computeRewardPayouts,
   calculatePotentialEarnings,
   formatPayoutBreakdown,
