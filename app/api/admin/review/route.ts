@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals, getProofsByGoal, getGoalById, transitionGoalStatus } from '@/lib/supabase';
 import { returnStake } from '@/lib/solana';
 import { requireAdmin } from '@/lib/auth/admin';
+import { parseBody } from '@/lib/validation/schemas';
+import { reviewDecisionSchema } from '@/lib/validation/review-schemas';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -79,16 +81,9 @@ export async function POST(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    const body = await request.json().catch(() => null);
-    const goalId = body?.goalId;
-    const decision = body?.decision;
-
-    if (typeof goalId !== 'string' || (decision !== 'approve' && decision !== 'reject')) {
-      return NextResponse.json(
-        { error: "Body must be { goalId: string, decision: 'approve' | 'reject' }" },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(request, reviewDecisionSchema);
+    if (!parsed.ok) return parsed.response;
+    const { goalId, decision } = parsed.data;
 
     const { data: goal } = await getGoalById(goalId);
     if (!goal) {
@@ -119,6 +114,19 @@ export async function POST(request: NextRequest) {
     }
 
     const payout = await returnStake(goal);
+    if (payout.status === 'unconfirmed') {
+      // May have landed: keep the goal completed and the claim in place.
+      console.error(`[Admin] Review approve payout unconfirmed for ${goalId}`);
+      return NextResponse.json(
+        {
+          success: true,
+          goalId,
+          status: 'completed',
+          payout: { status: 'unconfirmed', note: 'Transfer may have landed; run POST /api/admin/payouts/reconcile' },
+        },
+        { status: 202 }
+      );
+    }
     if (payout.status === 'failed') {
       // Put it back in the queue so the admin can retry
       await transitionGoalStatus(goalId, 'completed', 'pending_validation');
