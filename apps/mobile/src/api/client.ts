@@ -41,7 +41,7 @@ export function createApiClient(opts: ApiClientOptions) {
   const doFetch: typeof fetch = (...args) => (opts.fetchImpl ?? fetch)(...args);
 
   async function request<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     init: { json?: unknown; form?: FormData; auth?: boolean } = {}
   ): Promise<T> {
