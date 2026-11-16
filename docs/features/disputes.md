@@ -29,4 +29,5 @@ Only `FEATURE_DISPUTES`. No nav links needed. `DEMO_MODE` accepts `demo_tx_*` bo
 
 ## Known limits
 - Bond verification is `>=` bond (like stakes); the bond amount is converted to lamports with the existing floor helper, so it can be at most 1 lamport lenient.
-- If the window closes between on-chain verification and the status transition (race with the cron), the bond is on-chain but no dispute exists; this is logged and needs a manual refund.
+- The goal is claimed (`rejected_appealable -> disputed`) before the bond is verified, so the finalize cron can never fail a goal whose bond was paid. If verification fails the goal is handed back. A crash between the claim and the dispute insert leaves a `disputed` goal with no dispute row (needs a manual fix).
+- An upheld bond stays in escrow; it is NOT added to the reward pool in v1 (the design doc's original idea was deferred).

@@ -20,8 +20,10 @@ export type OpenDisputeResult =
 /**
  * Open a dispute for the session wallet. Order matters:
  * 1. cheap DB checks (owner, status, window, one-per-goal, signature reuse),
- * 2. verify the bond transfer on-chain (user -> escrow, >= 5% of the stake),
- * 3. atomically move the goal rejected_appealable -> disputed,
+ * 2. atomically claim the goal: rejected_appealable -> disputed (this also
+ *    shuts out the finalize cron, so a paid bond can never lack a dispute),
+ * 3. verify the bond transfer on-chain (user -> escrow, >= 5% of the stake);
+ *    if invalid the goal is handed back,
  * 4. insert the dispute (unique goal_id and bond signature); if that fails the
  *    goal move is reverted.
  */
@@ -56,18 +58,30 @@ export async function openDispute(input: {
 
   const bondAmount = computeBond(Number(goal.stake_amount));
 
-  const isDemo = isDemoMode() && input.bondSignature.startsWith('demo_tx_');
-  if (!isDemo) {
-    const { valid } = await verifyStakeTransaction(input.bondSignature, bondAmount, input.sessionWallet);
-    if (!valid) return { status: 'bond_invalid' };
-  }
-
+  // Claim the goal BEFORE looking at the chain. The atomic transition is the
+  // gate: once we hold 'disputed' the cron can no longer fail the goal, so a
+  // verified bond can never be left without a dispute (no paid-but-unrecorded
+  // window). If verification then fails, the goal is handed back.
   const { data: moved, error: moveErr } = await transitionGoalStatus(goal.id, 'rejected_appealable', 'disputed');
   if (moveErr) return { status: 'error' };
   if (!moved) {
     // The window closed (cron) or another request won between the check and now.
-    console.error(`[Disputes] bond ${input.bondSignature} verified but goal ${goal.id} left rejected_appealable; manual refund may be needed`);
+    // Nothing was verified or paid yet, so nothing needs refunding.
     return { status: 'refused', reason: 'not_appealable' };
+  }
+
+  const isDemo = isDemoMode() && input.bondSignature.startsWith('demo_tx_');
+  if (!isDemo) {
+    let valid = false;
+    try {
+      ({ valid } = await verifyStakeTransaction(input.bondSignature, bondAmount, input.sessionWallet));
+    } catch (e) {
+      console.error(`[Disputes] bond verification threw for goal ${goal.id}:`, e);
+    }
+    if (!valid) {
+      await transitionGoalStatus(goal.id, 'disputed', 'rejected_appealable');
+      return { status: 'bond_invalid' };
+    }
   }
 
   const { data: proofs } = await getProofsByGoal(goal.id);

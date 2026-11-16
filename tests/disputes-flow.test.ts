@@ -145,8 +145,22 @@ describe('openDispute', () => {
   it('rejects a bond that fails on-chain verification (wrong amount or sender)', async () => {
     m.verifyStakeTransaction.mockResolvedValue({ valid: false, error: new Error('no') });
     expect(await openDispute(input())).toEqual({ status: 'bond_invalid' });
-    expect(m.transitionGoalStatus).not.toHaveBeenCalled();
+    expect(m.transitionGoalStatus).toHaveBeenLastCalledWith('g1', 'disputed', 'rejected_appealable');
     expect(m.createDispute).not.toHaveBeenCalled();
+  });
+
+  it('hands the goal back when verification throws', async () => {
+    m.verifyStakeTransaction.mockRejectedValue(new Error('rpc down'));
+    expect(await openDispute(input())).toEqual({ status: 'bond_invalid' });
+    expect(m.transitionGoalStatus).toHaveBeenLastCalledWith('g1', 'disputed', 'rejected_appealable');
+  });
+
+  it('claims the goal before verifying, so a window closing mid-flight can never strand a paid bond', async () => {
+    const order: string[] = [];
+    m.transitionGoalStatus.mockImplementation(async () => { order.push('claim'); return { data: goal({ status: 'disputed' }), error: null }; });
+    m.verifyStakeTransaction.mockImplementation(async () => { order.push('verify'); return { valid: true, error: null }; });
+    await openDispute(input());
+    expect(order).toEqual(['claim', 'verify']);
   });
 
   it('only skips chain verification for demo_tx_ signatures in demo mode', async () => {
@@ -162,6 +176,7 @@ describe('openDispute', () => {
   it('refuses when the goal was moved concurrently (cron or a parallel request)', async () => {
     m.transitionGoalStatus.mockResolvedValue({ data: null, error: null });
     expect(await openDispute(input())).toEqual({ status: 'refused', reason: 'not_appealable' });
+    expect(m.verifyStakeTransaction).not.toHaveBeenCalled();
     expect(m.createDispute).not.toHaveBeenCalled();
   });
 
