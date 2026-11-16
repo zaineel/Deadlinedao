@@ -7,6 +7,8 @@ import { resolveDispute } from '@/lib/disputes/resolve';
 import { listOpenDisputes } from '@/lib/supabase/disputes';
 import { getGoalById } from '@/lib/supabase/goals';
 import { getProofById } from '@/lib/supabase/proofs';
+import { isGovernanceEnabled } from '@/lib/governance/flag';
+import { writeAudit } from '@/lib/supabase/governance';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -100,6 +102,13 @@ export async function POST(request: NextRequest) {
           { status: 202 }
         );
       case 'resolved':
+        if (isGovernanceEnabled()) {
+          // Best effort: the governance record is closed by the next cron pass.
+          await writeAudit(parsed.data.disputeId, 'admin_resolve_legacy', 'admin', {
+            decision: parsed.data.decision,
+            note: 'resolved through /api/admin/disputes',
+          }).catch(() => undefined);
+        }
         return NextResponse.json({
           success: true,
           noop: false,

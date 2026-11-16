@@ -111,6 +111,17 @@ Org-admin routes return 404 to non-admins so ids cannot be probed. See `docs/fea
 
 `POST /api/goals/share` (above) is also part of this flag.
 
+## Governance (flags `governance` and `disputes`, both required; 404 otherwise)
+
+| Route | Auth | Notes |
+| --- | --- | --- |
+| `GET /api/governance` | session, rate limited 60/min | The caller's panel assignments, voter stats, rewards and params. Sealed: only the caller's own vote until the dispute resolves; the owner is a pseudonym, never the wallet. |
+| `POST /api/governance/votes` | session + same-origin rule for cookies, 20/min | `{disputeId, vote:'overturn'|'uphold', reason?(<=500)}`. 201 recorded, 200 identical replay, 404 not drawn, 409 closed or conflicting second vote. |
+| `GET /api/admin/governance` | admin key | Escalated, admin-mode and voting disputes; tallies only for escalated or resolved. |
+| `POST /api/admin/governance` | admin key | `{action:'run'}` runs a pass; `{action:'override', disputeId, decision, reason}` audits first, then resolves via `resolveDispute`. |
+
+See `docs/features/governance.md`.
+
 ## Cron (cron secret, `GET`)
 
 Scheduled in `vercel.json`; see `docs/admin.md`.
@@ -121,6 +132,7 @@ Scheduled in `vercel.json`; see `docs/admin.md`.
 | `/api/cron/finalize-appeals` | | `{success, checked, failed}`; fails `rejected_appealable` goals whose window closed |
 | `/api/cron/deadline-reminders` | `push` | `{success, due, sent, skipped}` |
 | `/api/cron/org-matches` | `orgs` | `{success, summary}` |
+| `/api/cron/resolve-disputes` | `governance` and `disputes` | `{success, drawn, adminFallback, resolved, escalated, payoutPending, rewardsPaid, rewardsPending, errors}`; `{success, skipped:true}` when off |
 
 ## Teams (flag `teams`, session auth)
 
@@ -140,4 +152,4 @@ Teams stake together; failed members' stakes go to teammates who completed, befo
 
 ## Not present
 
-There is no `/api/upload/presigned` (use `POST /api/upload/proof`), and no governance routes: the `governance` flag exists in `lib/config/features.ts` but no route uses it.
+There is no `/api/upload/presigned` (use `POST /api/upload/proof`).
