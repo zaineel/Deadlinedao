@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { supabase } from '@/lib/supabase/client';
+import { isSignatureUsed } from '@/lib/solana/signature-registry';
 
 /** Database access for the orgs feature. Row shapes mirror 005_orgs.sql. */
 
@@ -208,11 +209,7 @@ export async function creditFunding(
 }
 
 export async function fundingSignatureUsed(signature: string): Promise<boolean> {
-  const [f, g] = await Promise.all([
-    supabase.from('org_fundings').select('id').eq('tx_signature', signature).maybeSingle(),
-    supabase.from('goals').select('id').eq('stake_tx_signature', signature).maybeSingle(),
-  ]);
-  return !!f.data || !!g.data;
+  return isSignatureUsed(signature);
 }
 
 /** Atomic reservation. Returns the org_matches id, or null if refused. */

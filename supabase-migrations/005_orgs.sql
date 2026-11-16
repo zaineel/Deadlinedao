@@ -75,6 +75,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_org_withdrawals_pending
 CREATE UNIQUE INDEX IF NOT EXISTS uq_org_withdrawals_sig
   ON org_withdrawals(tx_signature) WHERE tx_signature <> 'pending';
 
+-- Cross-feature signature reuse guard: one on-chain transfer may be credited
+-- once, either as a goal stake or as an org funding, never both. Enforced
+-- atomically in the database (advisory lock per signature serialises the two
+-- tables). Add the same check for any future table that stores such signatures.
+CREATE OR REPLACE FUNCTION org_fundings_sig_guard() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('txsig:' || NEW.tx_signature));
+  IF EXISTS (SELECT 1 FROM goals WHERE stake_tx_signature = NEW.tx_signature) THEN
+    RAISE EXCEPTION 'signature already used as a goal stake' USING ERRCODE = '23505';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_org_fundings_sig_guard ON org_fundings;
+CREATE TRIGGER trg_org_fundings_sig_guard BEFORE INSERT ON org_fundings
+  FOR EACH ROW EXECUTE FUNCTION org_fundings_sig_guard();
+
+CREATE OR REPLACE FUNCTION goals_sig_guard() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.stake_tx_signature IS NULL OR NEW.stake_tx_signature = 'pending'
+     OR NEW.stake_tx_signature LIKE 'demo_tx_%' THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('txsig:' || NEW.stake_tx_signature));
+  IF EXISTS (SELECT 1 FROM org_fundings WHERE tx_signature = NEW.stake_tx_signature) THEN
+    RAISE EXCEPTION 'signature already used as an org funding' USING ERRCODE = '23505';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_goals_sig_guard ON goals;
+CREATE TRIGGER trg_goals_sig_guard BEFORE INSERT OR UPDATE OF stake_tx_signature ON goals
+  FOR EACH ROW EXECUTE FUNCTION goals_sig_guard();
+
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_pools ENABLE ROW LEVEL SECURITY;
@@ -178,7 +210,9 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM goals g
       JOIN org_members m ON m.org_id = p_org AND m.wallet = g.wallet_address
-     WHERE g.status = 'active' AND g.created_at >= m.joined_at
+     WHERE (g.status = 'active'
+            OR (g.status = 'pending_validation' AND g.stake_tx_signature <> 'pending'))
+       AND g.created_at >= m.joined_at
        AND g.created_at BETWEEN pl.window_start AND pl.window_end
   ) THEN
     RETURN jsonb_build_object('ok', FALSE, 'reason', 'goals_in_progress');

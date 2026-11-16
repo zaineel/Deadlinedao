@@ -192,11 +192,10 @@ describe('planMatches', () => {
 });
 
 describe('isDefiniteSendFailure', () => {
-  it('only known pre-broadcast failures are definite', () => {
-    expect(isDefiniteSendFailure(new Error('Insufficient escrow balance. Has 0 SOL, needs 1 SOL'))).toBe(true);
-    expect(isDefiniteSendFailure(new Error('SOLANA_ESCROW_PRIVATE_KEY environment variable is not set'))).toBe(true);
-    expect(isDefiniteSendFailure(new Error('Transaction was not confirmed in 30.00 seconds'))).toBe(false);
-    expect(isDefiniteSendFailure(new Error('fetch failed'))).toBe(false);
-    expect(isDefiniteSendFailure(null)).toBe(false);
+  it('only a non-ambiguous failure without a signature is definite', () => {
+    expect(isDefiniteSendFailure({ signature: null, error: new Error('Insufficient escrow balance'), ambiguous: false })).toBe(true);
+    expect(isDefiniteSendFailure({ signature: 'sig', error: new Error('not confirmed'), ambiguous: true })).toBe(false);
+    expect(isDefiniteSendFailure({ signature: null, error: new Error('fetch failed'), ambiguous: true })).toBe(false);
+    expect(isDefiniteSendFailure({ signature: null, error: null, ambiguous: false })).toBe(false);
   });
 });

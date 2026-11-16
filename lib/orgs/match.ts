@@ -165,12 +165,12 @@ export function planMatches(input: {
 }
 
 /**
- * Was a failed escrow send DEFINITELY not broadcast? Only then may a reservation
- * be returned; anything else (timeouts, unconfirmed, unknown) stays reserved
- * because the transfer may still land. sendPayoutFromEscrow reports only an
- * Error, so we recognise the known pre-broadcast failures by message.
+ * Was an escrow send DEFINITELY not a transfer? sendPayoutFromEscrow reports
+ * `ambiguous: true` whenever the signed transaction may have reached the
+ * network (and then also returns the signature). Anything ambiguous, or any
+ * result that does not carry a plain error, stays reserved because the
+ * transfer may still land. Mirrors lib/solana/payout-classify.ts.
  */
-export function isDefiniteSendFailure(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-  return /Insufficient escrow balance|SOLANA_ESCROW_PRIVATE_KEY|Invalid public key|Non-base58/i.test(msg);
+export function isDefiniteSendFailure(result: { signature: string | null; error: Error | null; ambiguous: boolean }): boolean {
+  return !result.ambiguous && !result.signature && !!result.error;
 }

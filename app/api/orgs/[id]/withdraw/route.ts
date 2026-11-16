@@ -41,16 +41,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const sol = lamportsToSolNumber(claim.amountLamports);
-  const { signature, error } = await sendPayoutFromEscrow(guard.wallet, sol);
-  if (signature) {
+  const result = await sendPayoutFromEscrow(guard.wallet, sol);
+  const { signature } = result;
+  if (signature && !result.ambiguous && !result.error) {
     await finalizeWithdrawal(claim.id, signature);
     return NextResponse.json({ success: true, amountLamports: claim.amountLamports, signature });
   }
-  if (isDefiniteSendFailure(error)) {
+  if (isDefiniteSendFailure(result)) {
     await releaseWithdrawal(claim.id);
     return NextResponse.json({ error: 'Transfer failed; your balance was kept in the pool' }, { status: 502 });
   }
-  console.error(`[orgs] withdrawal ${claim.id} is in an ambiguous state; left claimed for manual review`);
+  console.error(`[orgs] withdrawal ${claim.id} is in an ambiguous state (signature ${signature ?? 'unknown'}); left claimed for manual review`);
   return NextResponse.json(
     { error: 'Transfer status is unconfirmed; do not retry. Contact support to reconcile.' },
     { status: 502 }

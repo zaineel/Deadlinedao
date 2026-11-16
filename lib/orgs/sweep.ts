@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
-import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase/payouts';
+import { claimPayout, finalizePayout, markPayoutUnconfirmed, releasePayout } from '@/lib/supabase/payouts';
 import { sendPayoutFromEscrow } from '@/lib/solana/escrow';
 import {
   isDefiniteSendFailure,
@@ -28,7 +28,8 @@ export interface MatchDeps {
   claim: (goalId: string, wallet: string, sol: number) => Promise<{ claimed: boolean; payoutId: string | null; error: boolean }>;
   finalize: (payoutId: string, signature: string) => Promise<void>;
   releasePayoutClaim: (payoutId: string) => Promise<void>;
-  send: (wallet: string, sol: number) => Promise<{ signature: string | null; error: Error | null }>;
+  markUnconfirmed: (payoutId: string, signature: string) => Promise<void>;
+  send: (wallet: string, sol: number) => Promise<{ signature: string | null; error: Error | null; ambiguous: boolean }>;
 }
 
 /**
@@ -56,18 +57,20 @@ export async function executeMatch(deps: MatchDeps, orgId: string, plan: Planned
     return claim.error ? { status: 'failed', goalId } : { status: 'already_paid', goalId };
   }
 
-  const { signature, error } = await deps.send(wallet, sol);
-  if (signature) {
+  const result = await deps.send(wallet, sol);
+  const { signature } = result;
+  if (signature && !result.ambiguous && !result.error) {
     await deps.finalize(claim.payoutId, signature);
     await deps.markPaid(matchId, signature);
     return { status: 'paid', goalId, signature, amountLamports };
   }
 
-  if (isDefiniteSendFailure(error)) {
+  if (isDefiniteSendFailure(result)) {
     await deps.releasePayoutClaim(claim.payoutId);
     await deps.releaseReservation(matchId);
     return { status: 'failed', goalId };
   }
+  if (signature) await deps.markUnconfirmed(claim.payoutId, signature);
   console.error(`[orgs] match for goal ${goalId} is in an ambiguous state; left reserved for manual review`);
   return { status: 'ambiguous', goalId };
 }
@@ -87,6 +90,9 @@ export const defaultMatchDeps: MatchDeps = {
     await finalizePayout(payoutId, signature);
   },
   releasePayoutClaim: releasePayout,
+  markUnconfirmed: async (payoutId, signature) => {
+    await markPayoutUnconfirmed(payoutId, signature);
+  },
   send: sendPayoutFromEscrow,
 };
 

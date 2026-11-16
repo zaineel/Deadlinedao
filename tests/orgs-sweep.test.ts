@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/supabase/client', () => ({ supabase: {} }));
-vi.mock('@/lib/supabase/payouts', () => ({ claimPayout: vi.fn(), finalizePayout: vi.fn(), releasePayout: vi.fn() }));
+vi.mock('@/lib/supabase/payouts', () => ({ claimPayout: vi.fn(), markPayoutUnconfirmed: vi.fn(), finalizePayout: vi.fn(), releasePayout: vi.fn() }));
 vi.mock('@/lib/solana/escrow', () => ({ sendPayoutFromEscrow: vi.fn() }));
 vi.mock('@/lib/orgs/db', () => ({
   reserveMatch: vi.fn(),
@@ -27,7 +27,8 @@ function deps(over: Partial<MatchDeps> = {}): MatchDeps & { calls: string[] } {
     claim: vi.fn(async () => { calls.push('claim'); return { claimed: true, payoutId: 'p1', error: false }; }),
     finalize: vi.fn(async () => { calls.push('finalize'); }),
     releasePayoutClaim: vi.fn(async () => { calls.push('releasePayoutClaim'); }),
-    send: vi.fn(async () => { calls.push('send'); return { signature: 'sig', error: null }; }),
+    markUnconfirmed: vi.fn(async () => { calls.push('markUnconfirmed'); }),
+    send: vi.fn(async () => { calls.push('send'); return { signature: 'sig', error: null, ambiguous: false }; }),
     ...over,
   };
   return Object.assign(d, { calls });
@@ -58,15 +59,17 @@ describe('executeMatch ordering (claim-before-send)', () => {
   });
 
   it('returns both claims on a definite send failure', async () => {
-    const d = deps({ send: vi.fn(async () => ({ signature: null, error: new Error('Insufficient escrow balance. Has 0 SOL, needs 0.2 SOL') })) });
+    const d = deps({ send: vi.fn(async () => ({ signature: null, error: new Error('Insufficient escrow balance. Has 0 SOL, needs 0.2 SOL'), ambiguous: false })) });
     expect((await executeMatch(d, 'org1', plan)).status).toBe('failed');
     expect(d.releasePayoutClaim).toHaveBeenCalledWith('p1');
     expect(d.releaseReservation).toHaveBeenCalledWith('m1');
   });
 
   it('keeps everything reserved when the send outcome is ambiguous', async () => {
-    const d = deps({ send: vi.fn(async () => ({ signature: null, error: new Error('Transaction was not confirmed in 30.00 seconds') })) });
+    const d = deps({ send: vi.fn(async () => ({ signature: 'maybe', error: new Error('Transaction was not confirmed in 30.00 seconds'), ambiguous: true })) });
     expect((await executeMatch(d, 'org1', plan)).status).toBe('ambiguous');
+    expect(d.markUnconfirmed).toHaveBeenCalledWith('p1', 'maybe');
+    expect(d.finalize).not.toHaveBeenCalled();
     expect(d.releasePayoutClaim).not.toHaveBeenCalled();
     expect(d.releaseReservation).not.toHaveBeenCalled();
     expect(d.markPaid).not.toHaveBeenCalled();
@@ -75,7 +78,7 @@ describe('executeMatch ordering (claim-before-send)', () => {
   it('simulated race: two sweeps on one goal send once', async () => {
     // the DB makes the reservation unique per goal: second reserve returns null
     let reserved = false;
-    const sends = vi.fn(async () => ({ signature: 'sig', error: null }));
+    const sends = vi.fn(async () => ({ signature: 'sig', error: null, ambiguous: false }));
     const mk = () => deps({
       reserve: vi.fn(async () => {
         if (reserved) return { id: null, error: false };
