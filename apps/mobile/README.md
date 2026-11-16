@@ -7,7 +7,7 @@ React Native + Expo (SDK 58, expo-router, TypeScript). Standalone: it has its ow
 This app was written without access to an iPhone, an iOS simulator, Xcode or a Phantom install. **Nothing has been run on a device or simulator.** What was verified:
 
 - `npx tsc --noEmit` passes.
-- 30 Vitest tests pass: Phantom deep-link URL builders and callback parser, x25519/nacl encryption round trips, the whole `PhantomWalletProvider` against an in-test fake Phantom, sign-in and proof message builders (including a drift test against the web app's builders), API client request shaping with a mocked `fetch`, and the sign-in / stake / proof flows with a fake wallet.
+- 31 Vitest tests pass: Phantom deep-link URL builders and callback parser, x25519/nacl encryption round trips, the whole `PhantomWalletProvider` against an in-test fake Phantom, sign-in and proof message builders (including a drift test against the web app's builders), API client request shaping with a mocked `fetch`, and the sign-in / stake / proof flows with a fake wallet.
 
 Not verified (treat as untested until you try it): the Phantom universal-link handoff on a real phone, redirect handling in expo-router, Keychain storage, the camera/library picker, multipart upload from React Native, push registration, EAS builds, and every screen's layout. The Phantom protocol is implemented from its public documentation; the real app may differ in details (see "Known risks").
 
@@ -66,6 +66,8 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 
 - Phantom returns to the app via `deadlinedao://phantom/<action>`. The wallet provider keeps pending requests in memory; if iOS kills the app while Phantom is in the foreground, the pending request is lost and the user must retry (the persisted connection survives).
 - The redirect briefly mounts `app/phantom/[action].tsx`, which steps back; this may cause a visible transition over modals.
-- `POST /api/goals/share` and `POST /api/push/register` request/response shapes are assumptions until the mobile-backend PR lands; both tolerate 404.
+- `POST /api/goals/share` (`{goalId, share}`) and `POST /api/push/register` (`{token, platform}`) match the web routes on main; both are behind the server `push` feature flag and 404 is tolerated. Sharing only works for completed goals.
+- Phantom documents the `signAndSendTransaction` deep link as DEPRECATED (recommending `signTransaction` / `signAllTransactions`; no removal date given). The stake flow still uses it and is unverified on a device. If Phantom removes it, the app must switch to `signTransaction` and submit the signed transaction itself (needs an RPC URL).
+- Connect responses carry Phantom's public key unauthenticated by protocol design; responses are only accepted for a pending request and must decrypt with the per-connect x25519 key.
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
