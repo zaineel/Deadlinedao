@@ -25,6 +25,8 @@ pub mod deadlinedao_escrow {
     pub fn initialize(ctx: Context<Initialize>, resolver: Pubkey, pool: Pubkey, params: ParamsArg) -> Result<()> {
         let p = params.into_core();
         p.validate().map_err(map_err)?;
+        require_keys_neq!(resolver, Pubkey::default(), EscrowErr::InvalidParams);
+        require_keys_neq!(pool, Pubkey::default(), EscrowErr::InvalidParams);
         let c = &mut ctx.accounts.config;
         c.authority = ctx.accounts.authority.key();
         c.pending_authority = Pubkey::default();
