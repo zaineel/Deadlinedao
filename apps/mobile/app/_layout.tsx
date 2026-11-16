@@ -31,7 +31,11 @@ function Routes() {
         <Stack.Screen name="goals/[id]" options={{ title: 'Goal' }} />
         <Stack.Screen name="proof/[id]" options={{ title: 'Submit proof', presentation: 'modal' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-        {/* Extension point: add disputes / teams screens here behind their feature flags. */}
+        <Stack.Screen name="more" options={{ title: 'More' }} />
+        <Stack.Screen name="disputes/[goalId]" options={{ title: 'Appeal' }} />
+        {/* Teams / orgs / governance screens use file-based routing: expo-router adds undeclared
+            files to this Stack automatically, so they need no edit here. They set their own header
+            title with <Stack.Screen options={{ title }} /> inside the screen. */}
       </Stack.Protected>
       {/* Wallet redirect landing route; renders nothing and returns to the previous screen. */}
       <Stack.Screen name="phantom/[action]" options={{ headerShown: false }} />

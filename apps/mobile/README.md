@@ -71,3 +71,10 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Connect responses carry Phantom's public key unauthenticated by protocol design; responses are only accepted for a pending request and must decrypt with the per-connect x25519 key.
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
+
+## Dashboard, appeals and sharing
+
+- `app/index.tsx` is the dashboard (stats, status badges with appeal countdowns, pull-to-refresh). Teams / Organizations / Governance tiles and `app/more.tsx` entries only show when `GET /api/features` reports them on (`src/features/use-features.ts`; fails closed).
+- Appeals (`app/disputes/[goalId].tsx`, `src/disputes/appeal-flow.ts`): for a `rejected_appealable` goal the app builds the 5% bond transfer to the server `escrowAddress` locally (`src/solana/transfer.ts`, byte-checked against `@solana/web3.js` in `tests/disputes-drift.test.ts`), Phantom signs, the app broadcasts, then POSTs `/api/disputes` with `{goalId, reason, bondSignature}`.
+- Sharing completed goals uses `POST /api/goals/share` (push flag) and the native share sheet with `/p/<id>`.
+- Push registration only runs when the push flag is on and is a no-op in Expo Go.
