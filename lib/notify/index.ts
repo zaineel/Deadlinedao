@@ -1,3 +1,4 @@
+import { findUnregisteredTokens } from '@/lib/mobile/push-token';
 import type {
   Channel,
   NotificationEvent,
@@ -98,6 +99,7 @@ export const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 /** Sends Expo push notifications to the recipient's Expo push tokens. */
 export class ExpoPushChannel implements Channel {
   name = 'expo-push';
+  constructor(private options: { onUnregistered?: (tokens: string[]) => Promise<void> } = {}) {}
   async send(event: NotificationEvent, recipient: Recipient): Promise<SendResult> {
     const tokens = recipient.expoPushTokens ?? [];
     if (tokens.length === 0) return { ok: false, error: 'recipient has no push tokens' };
@@ -115,6 +117,16 @@ export class ExpoPushChannel implements Channel {
       body: JSON.stringify(messages),
     });
     if (!res.ok) return { ok: false, error: `expo responded ${res.status}` };
+    if (this.options.onUnregistered) {
+      try {
+        const json: unknown = await res.json();
+        const tickets = (json as { data?: unknown } | null)?.data;
+        const dead = findUnregisteredTokens(tokens, tickets);
+        if (dead.length > 0) await this.options.onUnregistered(dead);
+      } catch {
+        // receipts are best-effort; the send itself succeeded
+      }
+    }
     return { ok: true };
   }
 }
