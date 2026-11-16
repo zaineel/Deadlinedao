@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { PayoutType } from '@/lib/config/payout-types';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -66,7 +67,7 @@ export type Database = {
           wallet_address: string;
           amount: number;
           tx_signature: string;
-          payout_type: 'completion_reward' | 'original_stake';
+          payout_type: PayoutType;
           created_at: string;
         };
         Insert: Omit<Database['public']['Tables']['payouts']['Row'], 'id' | 'created_at'> & {

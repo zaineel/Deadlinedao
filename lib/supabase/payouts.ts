@@ -1,5 +1,6 @@
 import { supabase, Database } from './client';
 import type { Payout } from '@/types';
+import type { PayoutType } from '@/lib/config/payout-types';
 
 type PayoutInsert = Database['public']['Tables']['payouts']['Insert'];
 
@@ -68,7 +69,7 @@ export async function getPayoutById(payoutId: string): Promise<{ data: Payout | 
 export async function getPayoutsByWallet(
   walletAddress: string,
   filters?: {
-    payout_type?: 'completion_reward' | 'original_stake';
+    payout_type?: PayoutType;
     limit?: number;
   }
 ): Promise<{ data: Payout[] | null; error: Error | null }> {
@@ -189,7 +190,7 @@ export async function getRecentPayouts(limit: number = 10): Promise<{ data: Payo
  * Get payouts by type (for analytics)
  */
 export async function getPayoutsByType(
-  payoutType: 'completion_reward' | 'original_stake',
+  payoutType: PayoutType,
   limit?: number
 ): Promise<{ data: Payout[] | null; error: Error | null }> {
   try {
@@ -214,7 +215,7 @@ export async function getPayoutsByType(
   }
 }
 
-export type PayoutKind = 'completion_reward' | 'original_stake';
+export type PayoutKind = PayoutType;
 
 /**
  * Reserve a payout BEFORE sending funds. Inserts a placeholder row
