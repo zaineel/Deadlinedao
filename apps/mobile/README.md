@@ -71,3 +71,6 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Connect responses carry Phantom's public key unauthenticated by protocol design; responses are only accepted for a pending request and must decrypt with the per-connect x25519 key.
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
+
+## Governance (panel voting)
+`app/governance/index.tsx` lists your panel assignments (owner as pseudonym, proof, AI verdict, countdown) and lets you vote overturn/uphold with an optional reason via `POST /api/governance/votes` (bearer session, no wallet signature, idempotent replay). Votes are sealed: only your own vote is shown until resolution. A 404 from `GET /api/governance` means the feature is off. Not run on a device; the entry point to `/governance` is added by the layout owner.
