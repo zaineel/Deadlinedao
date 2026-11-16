@@ -3,6 +3,8 @@ import { rateLimit } from '@/lib/rate-limit';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { parseValue, uuidSchema } from '@/lib/validation/schemas';
+import { requireUserSession } from '@/lib/auth/csrf';
+import { getGoalById } from '@/lib/supabase/goals';
 
 // Vercel configuration for R2 uploads
 export const runtime = 'nodejs';
@@ -34,6 +36,9 @@ export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { name: 'upload-proof', limit: 10, windowMs: 60_000 });
   if (limited) return limited;
 
+  const auth = requireUserSession(request, { mutating: true });
+  if (!auth.ok) return auth.response;
+
   try {
     console.log('[Upload API] Starting upload...');
 
@@ -57,6 +62,16 @@ export async function POST(request: NextRequest) {
     const goalIdResult = parseValue(goalIdRaw, uuidSchema);
     if (!goalIdResult.ok) return goalIdResult.response;
     const goalId = goalIdResult.data;
+
+    // Only the owner of an existing, active goal may upload proof for it.
+    // Missing and not-yours share one 404 so goal ids cannot be probed.
+    const { data: goal, error: goalError } = await getGoalById(goalId);
+    if (goalError || !goal || goal.wallet_address !== auth.wallet) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+    if (goal.status !== 'active') {
+      return NextResponse.json({ error: 'Goal is not accepting proof' }, { status: 409 });
+    }
 
     // Validate file type
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];

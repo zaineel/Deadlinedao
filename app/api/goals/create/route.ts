@@ -3,7 +3,9 @@ import { rateLimit } from '@/lib/rate-limit';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
 import { isDemoMode } from '@/lib/config/demo';
-import { parseBody, createGoalSchema } from '@/lib/validation/schemas';
+import { parseBody } from '@/lib/validation/schemas';
+import { sessionCreateGoalSchema } from '@/lib/validation/session-schemas';
+import { requireUserSession } from '@/lib/auth/csrf';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -21,10 +23,18 @@ export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { name: 'goals-create', limit: 10, windowMs: 60_000 });
   if (limited) return limited;
 
+  const auth = requireUserSession(request, { mutating: true });
+  if (!auth.ok) return auth.response;
+  const walletAddress = auth.wallet;
+
   try {
-    const parsed = await parseBody(request, createGoalSchema);
+    const parsed = await parseBody(request, sessionCreateGoalSchema);
     if (!parsed.ok) return parsed.response;
-    const { title, description, deadline, category, stakeAmount, walletAddress } = parsed.data;
+    const { title, description, deadline, category, stakeAmount } = parsed.data;
+    // A wallet in the body is never trusted: it must match the session
+    if (parsed.data.walletAddress !== undefined && parsed.data.walletAddress !== walletAddress) {
+      return NextResponse.json({ error: 'Wallet does not match session' }, { status: 403 });
+    }
 
     const userPublicKey = new PublicKey(walletAddress);
 

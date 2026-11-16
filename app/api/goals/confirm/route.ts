@@ -5,6 +5,7 @@ import { verifyStakeTransaction } from '@/lib/solana/escrow';
 import { isSignatureUsed } from '@/lib/solana/signature-registry';
 import { isDemoMode } from '@/lib/config/demo';
 import { parseBody, confirmGoalSchema } from '@/lib/validation/schemas';
+import { requireUserSession } from '@/lib/auth/csrf';
 import { canConfirmStake, PENDING_STAKE_SIGNATURE } from '@/lib/goals/confirm-guard';
 
 // Initialize Supabase client
@@ -20,6 +21,9 @@ const connection = new Connection(
 );
 
 export async function POST(request: NextRequest) {
+  const auth = requireUserSession(request, { mutating: true });
+  if (!auth.ok) return auth.response;
+
   try {
     const parsed = await parseBody(request, confirmGoalSchema);
     if (!parsed.ok) return parsed.response;
@@ -33,6 +37,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (goalError || !goal) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+    // Same 404 as a missing goal so goal ids cannot be probed
+    if (goal.wallet_address !== auth.wallet) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
     if (!canConfirmStake(goal)) {

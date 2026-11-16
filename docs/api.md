@@ -20,7 +20,7 @@ Types: `uuid` is a UUID string; `wallet` is a base58 Solana address; `lamports` 
 
 ## Sign-in (wallet sessions)
 
-Sessions are needed by the disputes, teams, orgs and push features and by `GET /api/proofs`.
+Sessions are needed by the disputes, teams, orgs and push features and by `POST /api/goals/create`, `POST /api/goals/confirm`, `GET /api/goals`, `POST /api/upload/proof` and `/api/proofs`. Send `Authorization: Bearer <token>` (mobile) or rely on the httpOnly `dd_session` cookie (web). Mutating requests authenticated by the cookie must be same-origin (`Sec-Fetch-Site: same-origin`, or an `Origin` matching the host); otherwise 403. Bearer requests are exempt. Missing or invalid session: 401.
 
 | Route | Auth | Body | Response |
 | --- | --- | --- | --- |
@@ -29,13 +29,19 @@ Sessions are needed by the disputes, teams, orgs and push features and by `GET /
 | `GET /api/auth/session` | session | none | `{wallet}` |
 | `POST /api/auth/logout` | public | none | `{ok: true}`; clears the cookie |
 
+## Features
+
+| Route | Auth | Response |
+| --- | --- | --- |
+| `GET /api/features` | public | `{disputes, teams, orgs, push, governance}` booleans only |
+
 ## Goals
 
 | Route | Auth | Flag | Request | Response |
 | --- | --- | --- | --- | --- |
-| `GET /api/goals?wallet=` | public | | `wallet` query | `{goals: Goal[]}` for that wallet, newest first |
-| `POST /api/goals/create` | public, rate limited 10/min | | `{title(1-100), description(1-1000), deadline(future ISO date), category('learning'|'work'|'health'), stakeAmount(>0, <=1000, 4 dp), walletAddress}` | `{success, goalId, transaction(base64, unsigned user->escrow transfer), escrowAddress, message}`. Goal is stored as `pending_validation` with `stake_tx_signature='pending'`. In demo mode: `{success, goalId, demoMode:true, message}` and no transaction. |
-| `POST /api/goals/confirm` | public | | `{goalId, signature}` | Verifies on-chain that `signature` is a transfer from the goal's wallet to escrow of at least the stake, and that the signature is unused; then activates the goal: `{success, goal, message}`. 404 unknown goal, 409 not awaiting confirmation or signature reused, 400 not verifiable yet. `demo_tx_*` signatures are accepted only in demo mode. |
+| `GET /api/goals` | session | | optional `wallet` query (mobile sends it); must equal the session wallet, else 403 | `{goals: Goal[]}` for the session wallet, newest first |
+| `POST /api/goals/create` | session, rate limited 10/min | | `{title(1-100), description(1-1000), deadline(future ISO date), category('learning'|'work'|'health'), stakeAmount(>0, <=1000, 4 dp), walletAddress?}` (the wallet is the session wallet; a body `walletAddress` is optional and 403 if it differs) | `{success, goalId, transaction(base64, unsigned user->escrow transfer), escrowAddress, message}`. Goal is stored as `pending_validation` with `stake_tx_signature='pending'`. In demo mode: `{success, goalId, demoMode:true, message}` and no transaction. |
+| `POST /api/goals/confirm` | session (goal owner) | | `{goalId, signature}` | Verifies on-chain that `signature` is a transfer from the goal's wallet to escrow of at least the stake, and that the signature is unused; then activates the goal: `{success, goal, message}`. 404 unknown goal or not yours, 409 not awaiting confirmation or signature reused, 400 not verifiable yet. `demo_tx_*` signatures are accepted only in demo mode. |
 | `GET /api/goals/[id]` | public | | | `{success, goal}` or 404 |
 | `PUT /api/goals/[id]` | admin key | | `{status: 'active'|'pending_validation'|'completed'|'failed'}` | `{success, goal}`. Raw status edit; moves no money. |
 | `POST /api/goals/share` | session, rate limited 30/min | `push` | `{goalId, share: boolean}` | `{success, shared}`. Toggles public sharing of the caller's own `completed` goal (the `/p` page). 404 if not found, not yours or not completed. |
@@ -44,8 +50,8 @@ Sessions are needed by the disputes, teams, orgs and push features and by `GET /
 
 | Route | Auth | Request | Response |
 | --- | --- | --- | --- |
-| `POST /api/upload/proof` | public, rate limited 10/min | multipart form: `file` (JPEG or PNG, <=10 MB, content sniffed), `goalId` (uuid) | `{success, url, fileName, fileSize, fileType}`; `url` is under `CLOUDFLARE_R2_PUBLIC_URL`. This replaces the removed `/api/upload/presigned`. |
-| `POST /api/proofs` | wallet-signed, rate limited 5/min | `{goal_id, text_description(1-5000), image_url?(https, must be under the R2 public URL), timestamp(ms), signature(base64)}`. The wallet signs `DeadlineDAO:submit-proof\ngoal:<id>\nts:<timestamp>\nhash:<hash>`, where the hash covers the text and image URL; the timestamp must be within 5 minutes. | Goal must be `active` and within deadline plus 7 days. Response includes `success, proof, validation, goal_status` and by verdict: `approved` -> `goal_status:'completed'` with `payout` (200; 202 with `payout.status:'unconfirmed'` if the transfer is ambiguous; 502 and the goal reopened if it definitively failed); `rejected` -> `failed`, or `rejected_appealable` when disputes are on; `needs_review` -> `pending_validation` (goes to the admin queue). |
+| `POST /api/upload/proof` | session (owner of an active goal; else 404/409), rate limited 10/min | multipart form: `file` (JPEG or PNG, <=10 MB, content sniffed), `goalId` (uuid) | `{success, url, fileName, fileSize, fileType}`; `url` is under `CLOUDFLARE_R2_PUBLIC_URL`. This replaces the removed `/api/upload/presigned`. |
+| `POST /api/proofs` | session (goal owner, else 404) plus wallet signature, rate limited 5/min | `{goal_id, text_description(1-5000), image_url?(https, must be under the R2 public URL), timestamp(ms), signature(base64)}`. The wallet signs `DeadlineDAO:submit-proof\ngoal:<id>\nts:<timestamp>\nhash:<hash>`, where the hash covers the text and image URL; the timestamp must be within 5 minutes. | Goal must be `active` and within deadline plus 7 days. Response includes `success, proof, validation, goal_status` and by verdict: `approved` -> `goal_status:'completed'` with `payout` (200; 202 with `payout.status:'unconfirmed'` if the transfer is ambiguous; 502 and the goal reopened if it definitively failed); `rejected` -> `failed`, or `rejected_appealable` when disputes are on; `needs_review` -> `pending_validation` (goes to the admin queue). |
 | `GET /api/proofs?goal_id=` | admin key, or session whose wallet owns the goal | `goal_id` query | `{success, proofs, count}`. 404 for missing or not yours. |
 
 ## Pools and stats (public, read-only)
