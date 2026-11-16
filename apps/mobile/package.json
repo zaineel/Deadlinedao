@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "@noble/hashes": "^2.4.0",
     "bs58": "^6.0.0",
     "expo": "^58.0.25",

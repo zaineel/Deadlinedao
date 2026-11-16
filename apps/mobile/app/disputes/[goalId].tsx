@@ -1,9 +1,13 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert } from 'react-native';
 import { ApiError } from '../../src/api/client';
+import { createGovernanceApi, type GovernanceParams } from '../../src/api/governance';
 import type { DashboardGoal } from '../../src/api/disputes';
 import { useAuth } from '../../src/auth/auth-context';
+import { appealExplainer, disputeProgress } from '../../src/disputes/appeal-explainer';
 import { fileAppeal, validateReason } from '../../src/disputes/appeal-flow';
+import { useFeatures } from '../../src/features/use-features';
 import { useDisputesApi, useDisputesData } from '../../src/disputes/use-disputes';
 import { countdown } from '../../src/goals/dashboard';
 import { config } from '../../src/config';
@@ -11,15 +15,13 @@ import { fetchLatestBlockhash } from '../../src/solana/transfer';
 import { GoalStatusBadge } from '../../src/ui/goal-status';
 import { Body, Button, Card, ErrorText, errorMessage, Field, H1, Screen } from '../../src/ui/kit';
 
-const STATUS_TEXT = {
-  open: 'Under review by the governance panel',
-  overturned: 'Overturned: your goal was marked completed, stake returned and bond refunded',
-  upheld: 'Upheld: the rejection stands and the bond stays in escrow',
-} as const;
-
 export default function DisputeScreen() {
   const { goalId } = useLocalSearchParams<{ goalId: string }>();
-  const { wallet, session } = useAuth();
+  const { wallet, session, api } = useAuth();
+  const { features } = useFeatures();
+  const [params, setParams] = useState<GovernanceParams | null>(null);
+  const gov = useMemo(() => createGovernanceApi(api), [api]);
+  const panelOn = features?.governance === true;
   const router = useRouter();
   const disputesApi = useDisputesApi();
   const { data, error: loadError, reload } = useDisputesData();
@@ -51,9 +53,25 @@ export default function DisputeScreen() {
     return () => clearInterval(t);
   }, []);
 
+  // Voting window / panel size from the server when available; fails quietly to the documented defaults.
+  useEffect(() => {
+    if (!panelOn) return;
+    let cancelled = false;
+    gov
+      .getOverview()
+      .then((o) => !cancelled && setParams(o.params))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [gov, panelOn]);
+
   const quote = data?.appealable.find((a) => a.goalId === goalId);
   const dispute = data?.disputes.find((d) => d.goalId === goalId);
   const left = countdown(quote?.appealDeadline ?? goal?.appeal_deadline, now);
+
+  const explainer = appealExplainer(params, panelOn);
+  const progress = disputeProgress(dispute?.status ?? 'open', params, panelOn);
 
   const submit = async () => {
     if (!quote || !goal || !data?.escrowAddress || !session) return;
@@ -85,6 +103,23 @@ export default function DisputeScreen() {
     }
   };
 
+  const confirmAndSubmit = () => {
+    if (!quote) return;
+    const invalid = validateReason(reason);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    Alert.alert(
+      'Confirm appeal',
+      `You will sign a ${quote.bondAmount} SOL bond in Phantom. ${explainer.slice(-2).join(' ')}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign bond', onPress: () => void submit() },
+      ]
+    );
+  };
+
   return (
     <Screen>
       {goal && (
@@ -98,12 +133,14 @@ export default function DisputeScreen() {
 
       {dispute && (
         <Card>
-          <Body>{STATUS_TEXT[dispute.status] ?? dispute.status}</Body>
+          <Body>{progress.headline}</Body>
           <Body muted>Bond {dispute.bondAmount} SOL</Body>
           <Body muted>Your reason: {dispute.reason}</Body>
-          {dispute.status === 'open' && (
-            <Body muted>A governance panel decides appeals. You will be notified when it is resolved.</Body>
-          )}
+          {progress.details.map((d) => (
+            <Body key={d} muted>
+              {d}
+            </Body>
+          ))}
         </Card>
       )}
 
@@ -117,6 +154,15 @@ export default function DisputeScreen() {
               the decision is upheld.
             </Body>
           </Card>
+          <Card>
+            <Body>How your appeal is judged</Body>
+            {explainer.map((line) => (
+              <Body key={line} muted>
+                {'\u2022 '}
+                {line}
+              </Body>
+            ))}
+          </Card>
           <Field
             label="Why was the decision wrong?"
             value={reason}
@@ -128,7 +174,7 @@ export default function DisputeScreen() {
           />
           <Button
             title={`Pay ${quote.bondAmount} SOL bond and appeal`}
-            onPress={submit}
+            onPress={confirmAndSubmit}
             loading={busy}
             disabled={left === 'closed'}
           />
