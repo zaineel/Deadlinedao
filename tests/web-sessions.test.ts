@@ -149,6 +149,24 @@ describe('csrf helper', () => {
     ).toBe(true);
   });
 
+  it('rejects Origin bypass attempts', () => {
+    const h = { host: 'example.com' };
+    expect(isSameOriginRequest(r({ ...h, origin: 'null' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'https://evil-example.com' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'https://example.com.evil.com' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'https://example.com:8443' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'file://example.com' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'http://example.com', 'x-forwarded-proto': 'https' }))).toBe(false);
+    expect(isSameOriginRequest(r({ ...h, origin: 'https://example.com', 'x-forwarded-proto': 'https' }))).toBe(true);
+    expect(isSameOriginRequest(r({ ...h, origin: '' }))).toBe(false);
+  });
+
+  it('non-bearer Authorization with a cookie is still CSRF-checked', () => {
+    expect(csrfViolation(r({ authorization: 'Basic abc' }))?.status).toBe(403);
+    expect(csrfViolation(r({ authorization: 'Bearer ' }))?.status).toBe(403);
+    expect(csrfViolation(r({ authorization: 'Bearerx t' }))?.status).toBe(403);
+  });
+
   it('rejects a cookie request with no origin signal, exempts bearer', () => {
     expect(csrfViolation(r({}))?.status).toBe(403);
     expect(csrfViolation(r({ authorization: 'Bearer t' }))).toBeNull();

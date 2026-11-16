@@ -30,7 +30,12 @@ export function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get('origin');
   if (!origin) return false;
   try {
-    return new URL(origin).host.toLowerCase() === requestHost(request);
+    const o = new URL(origin);
+    // Opaque origins ("null") and non-http(s) schemes never match
+    if (o.protocol !== 'https:' && o.protocol !== 'http:') return false;
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+    if (proto && o.protocol !== `${proto}:`) return false;
+    return o.host.toLowerCase() === requestHost(request);
   } catch {
     return false;
   }
