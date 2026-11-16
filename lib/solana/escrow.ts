@@ -156,52 +156,6 @@ export async function sendPayoutFromEscrow(
 }
 
 /**
- * Send multiple payouts in batch (more efficient)
- */
-export async function sendBatchPayouts(
-  payouts: Array<{ recipient: string; amount: number }>
-): Promise<{
-  signatures: string[];
-  errors: Array<{ recipient: string; error: string }>;
-}> {
-  const signatures: string[] = [];
-  const errors: Array<{ recipient: string; error: string }> = [];
-
-  // Check total amount needed
-  const totalAmount = payouts.reduce((sum, p) => sum + p.amount, 0);
-  const escrowBalance = await getEscrowBalance();
-
-  if (escrowBalance < totalAmount) {
-    return {
-      signatures: [],
-      errors: [{
-        recipient: 'all',
-        error: `Insufficient escrow balance. Has ${escrowBalance} SOL, needs ${totalAmount} SOL`,
-      }],
-    };
-  }
-
-  // Send payouts sequentially (parallel might cause nonce issues)
-  for (const payout of payouts) {
-    const { signature, error } = await sendPayoutFromEscrow(
-      payout.recipient,
-      payout.amount
-    );
-
-    if (signature && !error) {
-      signatures.push(signature);
-    } else if (error) {
-      errors.push({
-        recipient: payout.recipient,
-        error: error.message,
-      });
-    }
-  }
-
-  return { signatures, errors };
-}
-
-/**
  * Calculate escrow health (ratio of balance to total staked goals)
  */
 export async function calculateEscrowHealth(totalStakedInGoals: number): Promise<{
@@ -219,34 +173,6 @@ export async function calculateEscrowHealth(totalStakedInGoals: number): Promise
     healthRatio,
     isHealthy: healthRatio >= 0.95, // Should have at least 95% of staked amount
   };
-}
-
-/**
- * Emergency: Withdraw all funds from escrow (admin only)
- * Use this only for contract upgrades or emergencies
- */
-export async function emergencyWithdraw(
-  destinationAddress: string
-): Promise<SendPayoutResult> {
-  try {
-    const balance = await getEscrowBalance();
-
-    if (balance === 0) {
-      return { signature: null, error: new Error('Escrow is already empty'), ambiguous: false };
-    }
-
-    // Leave a small amount for rent (0.001 SOL)
-    const withdrawAmount = balance - 0.001;
-
-    if (withdrawAmount <= 0) {
-      return { signature: null, error: new Error('Insufficient balance to withdraw'), ambiguous: false };
-    }
-
-    return await sendPayoutFromEscrow(destinationAddress, withdrawAmount);
-  } catch (error) {
-    console.error('Error during emergency withdraw:', error);
-    return { signature: null, error: error as Error, ambiguous: false };
-  }
 }
 
 /**

@@ -103,7 +103,6 @@ async function main() {
     console.log('  • Upload proof images from your app');
     console.log('  • Store them securely in R2');
     console.log('  • Serve them via CDN globally');
-    console.log('  • Generate presigned URLs for temporary access');
     console.log('');
     console.log('Next: Restart your dev server and check /api/health');
     console.log('');

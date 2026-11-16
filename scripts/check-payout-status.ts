@@ -100,7 +100,7 @@ async function checkPayoutStatus() {
         console.log(`   Completed: ${new Date(goal.updated_at).toLocaleString()}\n`);
       });
 
-      console.log('💡 Tip: Run "npx tsx scripts/trigger-payouts.ts [YYYY-MM-DD]" to process these payouts\n');
+      console.log('💡 Tip: Use the admin page (/admin) or POST /api/admin/trigger-rewards to process rewards; use POST /api/admin/payouts/reconcile for unconfirmed payouts\n');
     } else {
       console.log('✅ All completed goals have been paid out!\n');
     }

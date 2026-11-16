@@ -116,7 +116,6 @@ Once set up, your app can:
 - ✅ Upload proof images from users
 - ✅ Store them securely in R2
 - ✅ Serve them via CDN (fast globally)
-- ✅ Generate time-limited presigned URLs
 - ✅ Delete files when needed
 - ✅ Track file metadata
 
