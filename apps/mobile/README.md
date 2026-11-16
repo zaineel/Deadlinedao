@@ -71,3 +71,7 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Connect responses carry Phantom's public key unauthenticated by protocol design; responses are only accepted for a pending request and must decrypt with the per-connect x25519 key.
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
+
+## Teams and organizations
+
+Screens: `app/teams/*` (list, create, join with `?code=`, detail with progress and leaderboard, create team goal) and `app/orgs/*` (list, join with `?code=`, detail). API modules: `src/api/teams.ts`, `src/api/orgs.ts`. Members stake on a team goal through the server-built escrow transfer (Phantom signs, the app broadcasts, then `/api/goals/confirm`). Org admins fund the pool with a locally built SOL transfer to the escrow (`src/orgs/funding-tx.ts`, byte-checked against `@solana/web3.js` in tests); the server verifies and credits it. Aggregate stats stay hidden below 5 consenting members, and admin actions only appear for org admins.
