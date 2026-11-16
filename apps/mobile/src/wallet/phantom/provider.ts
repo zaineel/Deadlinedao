@@ -29,6 +29,12 @@ export interface PhantomProviderDeps {
   /** App URL scheme base, e.g. `deadlinedao://phantom`. `/<action>` is appended. */
   redirectBase: string;
   cluster: PhantomCluster;
+  /**
+   * Submits a wallet-signed transaction to the network and resolves with its base58 signature
+   * once it is confirmed. Phantom no longer supports the signAndSendTransaction deep link
+   * ("This method is not supported"), so the wallet only signs and the app broadcasts.
+   */
+  broadcastTransaction: (signedTransaction: Uint8Array) => Promise<string>;
   timeoutMs?: number;
 }
 
@@ -123,11 +129,11 @@ export class PhantomWalletProvider implements WalletProvider {
   }
 
   async signAndSendTransaction(serializedTransaction: Uint8Array): Promise<string> {
-    const res = await this.encryptedRequest<{ signature: string }>('signAndSendTransaction', {
+    const res = await this.encryptedRequest<{ transaction: string }>('signTransaction', {
       transaction: toBase58(serializedTransaction),
     });
-    if (!res.signature) throw new WalletError('Phantom did not return a transaction signature');
-    return res.signature;
+    if (!res.transaction) throw new WalletError('Phantom did not return a signed transaction');
+    return this.deps.broadcastTransaction(fromBase58(res.transaction));
   }
 
   async disconnect(): Promise<void> {

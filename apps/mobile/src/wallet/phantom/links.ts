@@ -4,7 +4,7 @@
  */
 export const PHANTOM_BASE_URL = 'https://phantom.com/ul/v1';
 
-export type PhantomAction = 'connect' | 'disconnect' | 'signMessage' | 'signAndSendTransaction';
+export type PhantomAction = 'connect' | 'disconnect' | 'signMessage' | 'signTransaction' | 'signAndSendTransaction';
 
 export type PhantomCluster = 'mainnet-beta' | 'devnet' | 'testnet';
 

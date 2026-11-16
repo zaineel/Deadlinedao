@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { config } from '../config';
+import { broadcastTransaction } from './broadcast';
 import { PhantomWalletProvider } from './phantom/provider';
 import { KeyValueStore, WalletProvider } from './types';
 
@@ -26,8 +27,10 @@ export function getWalletProvider(): WalletProvider {
       randomBytes: (n) => Crypto.getRandomBytes(n),
       openUrl: (url) => Linking.openURL(url),
       appUrl: config.apiUrl,
-      redirectBase: `${config.urlScheme}://phantom`,
+      // createURL resolves to exp://<host>:8081/--/phantom in Expo Go and to `${config.urlScheme}://phantom` in a real build.
+      redirectBase: Linking.createURL('phantom'),
       cluster: config.cluster,
+      broadcastTransaction: (tx) => broadcastTransaction(config.rpcUrl, tx),
     });
   }
   return instance;

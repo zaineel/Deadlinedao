@@ -13,7 +13,7 @@ export interface WalletProvider {
   connect(): Promise<string>;
   /** Returns the raw 64-byte ed25519 signature of `message`. */
   signMessage(message: Uint8Array): Promise<Uint8Array>;
-  /** Wallet signs and broadcasts a serialized transaction; resolves with its base58 signature. */
+  /** Wallet signs a serialized transaction and it is submitted to the network; resolves with its base58 signature. */
   signAndSendTransaction(serializedTransaction: Uint8Array): Promise<string>;
   disconnect(): Promise<void>;
   /** Feed an incoming deep link; returns true when it belonged to a pending wallet request. */
