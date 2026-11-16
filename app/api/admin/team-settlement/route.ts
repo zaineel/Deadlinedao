@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/auth/admin';
 import { parseBody } from '@/lib/validation/schemas';
 import { settleTeamGoalSchema } from '@/lib/validation/teams-schemas';
 import { getMemberGoals, getTeamGoal, markTeamGoalSettled, recordTeamRemainder } from '@/lib/supabase/teams';
-import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase/payouts';
+import { claimPayout, finalizePayout, releasePayout, markPayoutUnconfirmed, getPayoutsByGoal } from '@/lib/supabase/payouts';
 import { sendPayoutFromEscrow } from '@/lib/solana/escrow';
 import { settleTeamGoal } from '@/lib/teams/settle';
 
@@ -47,7 +47,15 @@ export async function POST(request: NextRequest) {
         claim: (goalId, wallet, amount) => claimPayout(goalId, wallet, amount, 'team_reward'),
         send: sendPayoutFromEscrow,
         finalize: finalizePayout,
-        release: releasePayout,
+        release: (id) => releasePayout(id),
+        markUnconfirmed: markPayoutUnconfirmed,
+        isUnresolved: async (goalId) => {
+          const { data, error } = await getPayoutsByGoal(goalId);
+          if (error || !data) return true; // fail closed: do not mark settled
+          return data.some(
+            (p) => p.payout_type === 'team_reward' && (p.tx_signature === 'pending' || p.tx_signature.startsWith('unconfirmed:'))
+          );
+        },
       },
       { dryRun }
     );
@@ -76,8 +84,9 @@ export async function POST(request: NextRequest) {
     }
 
     const failed = result.outcomes.filter((o) => o.status === 'failed').length;
+    const unconfirmed = result.outcomes.filter((o) => o.status === 'unconfirmed').length;
     return NextResponse.json({
-      success: failed === 0,
+      success: failed === 0 && unconfirmed === 0,
       dryRun: result.dryRun,
       settled,
       teamPool: result.teamPool,
@@ -86,7 +95,9 @@ export async function POST(request: NextRequest) {
       planned: result.planned,
       outcomes: result.outcomes,
       message:
-        failed === 0
+        failed === 0 && unconfirmed > 0
+          ? `${unconfirmed} reward(s) are unconfirmed (may have landed). Run POST /api/admin/payouts/reconcile; do not retry them.`
+          : failed === 0
           ? 'Team settlement complete'
           : `${failed} reward(s) failed to send. Safe to re-run: paid rewards are skipped.`,
     });

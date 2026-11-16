@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { PayoutType } from '@/lib/config/payout-types';
+import type { GoalStatus } from '@/types';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,7 +30,8 @@ export type Database = {
           deadline: string;
           stake_amount: number;
           stake_tx_signature: string;
-          status: 'active' | 'pending_validation' | 'completed' | 'failed';
+          status: GoalStatus;
+          appeal_deadline?: string | null;
           category: 'learning' | 'work' | 'health';
           created_at: string;
           updated_at: string;
@@ -38,7 +40,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
-          status?: 'active' | 'pending_validation' | 'completed' | 'failed';
+          status?: GoalStatus;
         };
         Update: Partial<Database['public']['Tables']['goals']['Insert']>;
       };

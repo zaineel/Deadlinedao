@@ -21,7 +21,7 @@ vi.mock('@/lib/supabase/teams', () => ({
 vi.mock('@/lib/teams/stake-tx', () => ({
   buildStakeTransaction: vi.fn(async () => ({ transaction: 'dHg=', escrowAddress: 'ESCROW' })),
 }));
-vi.mock('@/lib/supabase/payouts', () => ({ claimPayout: vi.fn(), finalizePayout: vi.fn(), releasePayout: vi.fn() }));
+vi.mock('@/lib/supabase/payouts', () => ({ claimPayout: vi.fn(), finalizePayout: vi.fn(), releasePayout: vi.fn(), markPayoutUnconfirmed: vi.fn(), getPayoutsByGoal: vi.fn() }));
 vi.mock('@/lib/solana/escrow', () => ({ sendPayoutFromEscrow: vi.fn() }));
 
 import * as db from '@/lib/supabase/teams';

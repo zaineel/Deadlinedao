@@ -20,6 +20,8 @@ function makeDeps(overrides: Partial<SettleDeps> = {}) {
     }),
     send: vi.fn(async () => ({ signature: 'tx', error: null })),
     finalize: vi.fn(async () => undefined),
+    markUnconfirmed: vi.fn(async () => undefined),
+    isUnresolved: vi.fn(async () => false),
     release: vi.fn(async (payoutId: string) => {
       claimed.delete(payoutId.replace('p-', ''));
     }),
@@ -94,5 +96,51 @@ describe('settleTeamGoal', () => {
     const r = await settleTeamGoal({ deadline: past }, [g('a', 'failed'), g('b', 'failed')], deps);
     expect(r).toMatchObject({ ok: true, complete: true, distributed: 0, remainderToGlobal: 2 });
     expect(deps.send).not.toHaveBeenCalled();
+  });
+
+  describe('ambiguous sends', () => {
+    const goals = [g('a', 'completed'), g('b', 'failed')];
+
+    it('definite failure (no signature, not ambiguous) releases the claim', async () => {
+      const deps = makeDeps({ send: vi.fn(async () => ({ signature: null, error: new Error('x'), ambiguous: false })) });
+      const r = await settleTeamGoal({ deadline: past }, goals, deps);
+      expect(deps.release).toHaveBeenCalledWith('p-a');
+      expect(deps.markUnconfirmed).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ ok: true, complete: false });
+    });
+
+    it('ambiguous keeps the claim, marks unconfirmed and is not complete', async () => {
+      const deps = makeDeps({ send: vi.fn(async () => ({ signature: 'sigX', error: new Error('timeout'), ambiguous: true })) });
+      const r = await settleTeamGoal({ deadline: past }, goals, deps);
+      expect(deps.release).not.toHaveBeenCalled();
+      expect(deps.finalize).not.toHaveBeenCalled();
+      expect(deps.markUnconfirmed).toHaveBeenCalledWith('p-a', 'sigX');
+      expect(r).toMatchObject({ ok: true, complete: false, outcomes: [{ status: 'unconfirmed', signature: 'sigX' }] });
+    });
+
+    it('rerun after an ambiguous send does not pay again and stays incomplete', async () => {
+      const send = vi.fn(async () => ({ signature: 'sigX', error: new Error('timeout'), ambiguous: true }));
+      const deps = makeDeps({ send, isUnresolved: vi.fn(async () => true) });
+      await settleTeamGoal({ deadline: past }, goals, deps);
+      const again = await settleTeamGoal({ deadline: past }, goals, deps);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(again).toMatchObject({ ok: true, complete: false, outcomes: [{ status: 'unconfirmed' }] });
+    });
+
+    it('ambiguous without a signature still keeps the claim', async () => {
+      const deps = makeDeps({ send: vi.fn(async () => ({ signature: null, error: new Error('t'), ambiguous: true })) });
+      const r = await settleTeamGoal({ deadline: past }, goals, deps);
+      expect(deps.release).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ complete: false });
+    });
+
+    it('appeal/dispute statuses block settlement', async () => {
+      const deps = makeDeps();
+      for (const st of ['rejected_appealable', 'disputed']) {
+        const r = await settleTeamGoal({ deadline: past }, [g('a', 'completed'), g('b', st)], deps);
+        expect(r).toMatchObject({ ok: false, reason: 'non_final_goals', blockingGoalIds: ['b'] });
+      }
+      expect(deps.send).not.toHaveBeenCalled();
+    });
   });
 });

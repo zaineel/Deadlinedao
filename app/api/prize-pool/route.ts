@@ -4,6 +4,7 @@ import { getAllGoals } from '@/lib/supabase';
 import { isFeatureEnabled } from '@/lib/config/features';
 import { getTeamGoalRemaindersForDay } from '@/lib/supabase/teams';
 import { excludeTeamGoals, sumTeamRemainders } from '@/lib/teams/pool';
+import { unsettledGoals } from '@/lib/disputes/logic';
 
 /**
  * GET /api/prize-pool?deadline=YYYY-MM-DD
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
         activeGoals: activeGoals.length,
         completedGoals: completedGoals.length,
         failedGoals: failedGoals.length,
+        pendingAppeals: unsettledGoals(goalsForDeadline).length,
       },
       prizePool: {
         totalPrizePool: prizePool,

@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
 import { verifyStakeTransaction } from '@/lib/solana/escrow';
+import { isSignatureUsed } from '@/lib/solana/signature-registry';
 import { isDemoMode } from '@/lib/config/demo';
 import { parseBody, confirmGoalSchema } from '@/lib/validation/schemas';
+import { canConfirmStake, PENDING_STAKE_SIGNATURE } from '@/lib/goals/confirm-guard';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -26,26 +28,22 @@ export async function POST(request: NextRequest) {
     // Load the goal so we can verify the on-chain transfer against it
     const { data: goal, error: goalError } = await supabase
       .from('goals')
-      .select('id, wallet_address, stake_amount, status')
+      .select('id, wallet_address, stake_amount, status, stake_tx_signature')
       .eq('id', goalId)
       .single();
 
     if (goalError || !goal) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
-    if (goal.status !== 'pending_validation') {
+    if (!canConfirmStake(goal)) {
       return NextResponse.json({ error: 'Goal is not awaiting stake confirmation' }, { status: 409 });
     }
 
     const isDemoSignature = isDemoMode() && signature.startsWith('demo_tx_');
 
-    // Replay protection: a signature may only back one goal
-    const { data: existing } = await supabase
-      .from('goals')
-      .select('id')
-      .eq('stake_tx_signature', signature)
-      .maybeSingle();
-    if (existing && !isDemoSignature) {
+    // Replay protection: a signature may only back one goal, and never one
+    // that was already credited as an org funding (or any other feature).
+    if (!isDemoSignature && (await isSignatureUsed(signature))) {
       return NextResponse.json({ error: 'Transaction already used' }, { status: 409 });
     }
 
@@ -70,6 +68,7 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', goalId)
       .eq('status', 'pending_validation')
+      .eq('stake_tx_signature', PENDING_STAKE_SIGNATURE)
       .select()
       .single();
 

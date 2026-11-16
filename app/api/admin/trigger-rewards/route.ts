@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
 import { sendPayoutFromEscrow } from '@/lib/solana';
 import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase';
+import { markPayoutUnconfirmed } from '@/lib/supabase/payouts';
 import { requireAdmin } from '@/lib/auth/admin';
 import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { isFeatureEnabled } from '@/lib/config/features';
@@ -9,6 +10,7 @@ import { getTeamGoalRemaindersForDay } from '@/lib/supabase/teams';
 import { composeGlobalPool, computeGlobalRewardPayouts, excludeTeamGoals, sumTeamRemainders, unsettledTeamGoalIds } from '@/lib/teams/pool';
 import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
 import { z } from 'zod';
+import { unsettledGoals } from '@/lib/disputes/logic';
 
 // Vercel configuration
 export const runtime = 'nodejs';
@@ -70,6 +72,18 @@ export async function POST(request: NextRequest) {
     const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
     console.log(`[Admin] Found ${goalsWithDeadline.length} goals with deadline ${deadline}`);
+
+    // Never distribute while appeals are still undecided: those stakes are not final
+    const unsettled = unsettledGoals(excludeTeamGoals(goalsWithDeadline));
+    if (unsettled.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${unsettled.length} goal(s) for this deadline are still in the appeal window or under dispute. Try again once they are resolved.`,
+        },
+        { status: 409 }
+      );
+    }
 
     // Team member goals are settled by /api/admin/team-settlement and never join the
     // global winner/loser sets. Each settled team goal's recorded remainder joins the pool.
@@ -134,7 +148,7 @@ export async function POST(request: NextRequest) {
       goalId: string;
       recipient: string;
       amount: number;
-      status: 'success' | 'already_distributed' | 'failed';
+      status: 'success' | 'already_distributed' | 'unconfirmed' | 'failed';
       signature?: string;
       error?: string;
     }> = [];
@@ -151,7 +165,13 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const { signature, error } = await sendPayoutFromEscrow(p.recipient, p.amount);
+      const { signature, error, ambiguous } = await sendPayoutFromEscrow(p.recipient, p.amount);
+      if (ambiguous) {
+        // May have landed: keep the claim so a re-run cannot pay twice.
+        if (signature) await markPayoutUnconfirmed(claim.payoutId!, signature);
+        outcomes.push({ ...p, status: 'unconfirmed', signature: signature ?? undefined });
+        continue;
+      }
       if (!signature || error) {
         await releasePayout(claim.payoutId!);
         outcomes.push({ ...p, status: 'failed', error: error?.message || 'Transfer failed' });
@@ -165,6 +185,7 @@ export async function POST(request: NextRequest) {
     const succeeded = outcomes.filter(o => o.status === 'success');
     const alreadyDone = outcomes.filter(o => o.status === 'already_distributed');
     const failedOutcomes = outcomes.filter(o => o.status === 'failed');
+    const unconfirmedOutcomes = outcomes.filter(o => o.status === 'unconfirmed');
     console.log(`[Admin] Rewards: ${succeeded.length} sent, ${alreadyDone.length} already distributed, ${failedOutcomes.length} failed`);
 
     const rewardBreakdown = outcomes.map(o => {
@@ -177,7 +198,7 @@ export async function POST(request: NextRequest) {
         rewardAmount: o.amount,
         totalPayout: o.status === 'success' ? o.amount : 0,
         proportion: ((goal.stake_amount / totalCompletedStake) * 100).toFixed(2) + '%',
-        status: o.status === 'failed' ? 'failed' : 'success',
+        status: o.status === 'failed' ? 'failed' : o.status === 'unconfirmed' ? 'unconfirmed' : 'success',
         signature: o.signature || null,
         error: o.error || (o.status === 'already_distributed' ? 'Already distributed earlier' : null),
       };
@@ -186,8 +207,10 @@ export async function POST(request: NextRequest) {
 
     // Return comprehensive results
     return NextResponse.json({
-      success: failedOutcomes.length === 0,
-      message: failedOutcomes.length === 0
+      success: failedOutcomes.length === 0 && unconfirmedOutcomes.length === 0,
+      message: failedOutcomes.length === 0 && unconfirmedOutcomes.length > 0
+        ? `${unconfirmedOutcomes.length} payouts are unconfirmed (may have landed). Run POST /api/admin/payouts/reconcile; do not retry them.`
+        : failedOutcomes.length === 0
         ? `Distributed ${sentTotal.toFixed(4)} SOL to ${succeeded.length} winners` +
           (alreadyDone.length ? ` (${alreadyDone.length} already paid earlier)` : '')
         : `${failedOutcomes.length} of ${outcomes.length} payouts failed. Safe to re-run: paid goals are skipped.`,
@@ -205,6 +228,7 @@ export async function POST(request: NextRequest) {
         successfulPayouts: succeeded.length,
         alreadyDistributed: alreadyDone.length,
         failedPayouts: failedOutcomes.length,
+        unconfirmedPayouts: unconfirmedOutcomes.length,
         totalWinnersStake: totalCompletedStake,
         totalLosersStake: totalFailedStake,
       },
@@ -251,6 +275,8 @@ export async function GET(request: NextRequest) {
     // Filter goals by deadline
     const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
+    const unsettledCount = unsettledGoals(excludeTeamGoals(goalsWithDeadline)).length;
+
     // Team member goals are excluded; settled team remainders join the pool (flag on only).
     let teamRemainder = 0;
     let unsettledTeamGoals: string[] = [];
@@ -294,9 +320,11 @@ export async function GET(request: NextRequest) {
         totalFailedStake,
       },
       distribution: preview,
-      canDistribute: completedGoals.length > 0 && totalFailedStake > 0 && unsettledTeamGoals.length === 0,
+      canDistribute: unsettledCount === 0 && completedGoals.length > 0 && totalFailedStake > 0 && unsettledTeamGoals.length === 0,
+      pendingAppeals: unsettledCount,
       ...(isFeatureEnabled('teams') ? { teamRemainder, unsettledTeamGoalIds: unsettledTeamGoals } : {}),
-      note: completedGoals.length === 0 ? 'No completed goals to reward' :
+      note: unsettledCount > 0 ? 'Waiting on appeals: goals are still in the appeal window or disputed' :
+            completedGoals.length === 0 ? 'No completed goals to reward' :
             totalFailedStake <= 0 ? 'No failed stakes to distribute' :
             'Ready to distribute rewards',
     });

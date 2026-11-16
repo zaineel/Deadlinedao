@@ -1,9 +1,5 @@
-import {
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  sendAndConfirmTransaction,
-} from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { encodeBase58, isAmbiguousFailure, type SendStage } from './payout-classify';
 import {
   connection,
   getEscrowKeypair,
@@ -14,6 +10,7 @@ import {
   confirmTransaction,
   getRecentBlockhash,
 } from './client';
+import { hasEscrowTransfer } from './transfer-check';
 
 /**
  * Escrow wallet management for DeadlineDAO
@@ -54,28 +51,13 @@ export async function verifyStakeTransaction(
       return { valid: false, error: new Error('Transaction failed') };
     }
 
-    // Verify the transaction is a transfer to escrow
-    const instructions = tx.transaction.message.instructions;
-    let foundTransfer = false;
-
-    for (const instruction of instructions) {
-      if ('parsed' in instruction && instruction.program === 'system') {
-        const parsed = instruction.parsed;
-        if (parsed.type === 'transfer') {
-          const info = parsed.info;
-
-          // Verify: from user, to escrow, correct amount
-          if (
-            info.destination === escrowPublicKey.toBase58() &&
-            info.source === userPublicKey &&
-            info.lamports >= solToLamports(expectedAmount)
-          ) {
-            foundTransfer = true;
-            break;
-          }
-        }
-      }
-    }
+    // Verify the transaction is a transfer to escrow: from user, to escrow, correct amount
+    const foundTransfer = hasEscrowTransfer(
+      tx.transaction.message.instructions,
+      escrowPublicKey.toBase58(),
+      userPublicKey,
+      solToLamports(expectedAmount)
+    );
 
     if (!foundTransfer) {
       return {
@@ -91,13 +73,31 @@ export async function verifyStakeTransaction(
   }
 }
 
+export type SendPayoutResult = {
+  /** Set on success, and also on an AMBIGUOUS failure (the tx may still land). */
+  signature: string | null;
+  error: Error | null;
+  /**
+   * true  = the signed transaction may have reached the network; funds MAY have
+   *         moved. Never release the payout claim; reconcile it instead.
+   * false = definitive: nothing was submitted (or it landed and failed).
+   */
+  ambiguous: boolean;
+};
+
 /**
- * Send payout from escrow to user
+ * Send payout from escrow to user.
+ * Distinguishes definitive failures (nothing submitted) from ambiguous ones
+ * (submission or confirmation threw / timed out). The signature is computed
+ * from the signed transaction BEFORE broadcasting so an ambiguous failure can
+ * still be reconciled later.
  */
 export async function sendPayoutFromEscrow(
   recipientAddress: string,
   amount: number
-): Promise<{ signature: string | null; error: Error | null }> {
+): Promise<SendPayoutResult> {
+  let stage: SendStage = 'prepare';
+  let signature: string | null = null;
   try {
     const escrowKeypair = getEscrowKeypair();
     const recipientPublicKey = new PublicKey(recipientAddress);
@@ -109,10 +109,10 @@ export async function sendPayoutFromEscrow(
       return {
         signature: null,
         error: new Error(`Insufficient escrow balance. Has ${escrowBalance} SOL, needs ${amount} SOL`),
+        ambiguous: false,
       };
     }
 
-    // Create transfer transaction
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: escrowKeypair.publicKey,
@@ -121,24 +121,37 @@ export async function sendPayoutFromEscrow(
       })
     );
 
-    // Get recent blockhash
     const { blockhash, lastValidBlockHeight } = await getRecentBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.lastValidBlockHeight = lastValidBlockHeight;
     transaction.feePayer = escrowKeypair.publicKey;
+    transaction.sign(escrowKeypair);
 
-    // Sign and send transaction
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [escrowKeypair],
-      { commitment: 'confirmed' }
+    const sigBytes = transaction.signature;
+    if (!sigBytes) throw new Error('Transaction was not signed');
+    signature = encodeBase58(sigBytes);
+
+    // From here on the transaction may reach the network.
+    stage = 'submitted';
+    await connection.sendRawTransaction(transaction.serialize());
+    const confirmation = await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed'
     );
+    if (confirmation.value.err) {
+      // Landed and failed on-chain: no funds moved (only the fee).
+      return {
+        signature: null,
+        error: new Error('Transfer failed on-chain'),
+        ambiguous: false,
+      };
+    }
 
-    return { signature, error: null };
+    return { signature, error: null, ambiguous: false };
   } catch (error) {
     console.error('Error sending payout from escrow:', error);
-    return { signature: null, error: error as Error };
+    const ambiguous = isAmbiguousFailure(stage);
+    return { signature: ambiguous ? signature : null, error: error as Error, ambiguous };
   }
 }
 
@@ -175,7 +188,7 @@ export async function sendBatchPayouts(
       payout.amount
     );
 
-    if (signature) {
+    if (signature && !error) {
       signatures.push(signature);
     } else if (error) {
       errors.push({
@@ -214,25 +227,25 @@ export async function calculateEscrowHealth(totalStakedInGoals: number): Promise
  */
 export async function emergencyWithdraw(
   destinationAddress: string
-): Promise<{ signature: string | null; error: Error | null }> {
+): Promise<SendPayoutResult> {
   try {
     const balance = await getEscrowBalance();
 
     if (balance === 0) {
-      return { signature: null, error: new Error('Escrow is already empty') };
+      return { signature: null, error: new Error('Escrow is already empty'), ambiguous: false };
     }
 
     // Leave a small amount for rent (0.001 SOL)
     const withdrawAmount = balance - 0.001;
 
     if (withdrawAmount <= 0) {
-      return { signature: null, error: new Error('Insufficient balance to withdraw') };
+      return { signature: null, error: new Error('Insufficient balance to withdraw'), ambiguous: false };
     }
 
     return await sendPayoutFromEscrow(destinationAddress, withdrawAmount);
   } catch (error) {
     console.error('Error during emergency withdraw:', error);
-    return { signature: null, error: error as Error };
+    return { signature: null, error: error as Error, ambiguous: false };
   }
 }
 
