@@ -3,7 +3,7 @@
 Flag: `FEATURE_PUSH=true` gates all routes below, the cron and the share page. Migration: `supabase-migrations/006_push_and_share.sql` (apply manually before enabling).
 
 ## Push
-- `POST /api/push/register` `{ token, platform: 'ios'|'android' }` (session required, 20/min). Token must match `ExponentPushToken[...]`. A wallet holds at most 5 tokens (409 beyond that). A token is globally unique: registering it from another wallet moves it.
+- `POST /api/push/register` `{ token, platform: 'ios'|'android' }` (session required, 20/min). Token must match `ExponentPushToken[...]`. A wallet holds at most 5 tokens (409 beyond that). A token is globally unique: a token owned by another wallet is NOT moved (409) unless its owner unregisters it or it was last seen over 30 days ago.
 - `POST /api/push/unregister` `{ token }` removes the token only if the session wallet owns it.
 - `lib/notify/token-store.ts` is the DB layer; `notifyWallet(event, wallet)` in `lib/notify/notify-wallet.ts` loads tokens and sends via `ExpoPushChannel`. Tickets reporting `DeviceNotRegistered` delete that token. Only immediate tickets are inspected; delayed receipts (`getReceipts`) are not polled.
 - `GET /api/cron/deadline-reminders` (Bearer `CRON_SECRET`, every 6h in `vercel.json`) reminds active goals due within 24h. Each (goal, deadline) is claimed in `deadline_reminders_sent` before sending, so reruns never double-send (at-most-once: a failed push is not retried).

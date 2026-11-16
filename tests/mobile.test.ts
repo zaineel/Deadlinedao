@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_TOKENS_PER_WALLET,
   decideRegister,
+  decideOwnership,
+  TOKEN_REASSIGN_STALE_MS,
   findUnregisteredTokens,
   isExpoPushToken,
 } from '@/lib/mobile/push-token';
@@ -213,4 +215,22 @@ describe('ExpoPushChannel receipts', () => {
     await new ExpoPushChannel({ onUnregistered }).send(event, { wallet: 'w', expoPushTokens: ['a'] });
     expect(onUnregistered).not.toHaveBeenCalled();
   });
+});
+
+describe('decideOwnership (token hijack guard)', () => {
+  const now = Date.parse('2026-11-16T00:00:00Z');
+  const fresh = { wallet_address: 'victim', last_seen: new Date(now - 1000).toISOString() };
+  it('inserts an unknown token', () => expect(decideOwnership(null, 'me', now)).toBe('insert'));
+  it('refreshes own token', () =>
+    expect(decideOwnership({ ...fresh, wallet_address: 'me' }, 'me', now)).toBe('refresh'));
+  it('refuses to move a recently-seen token from another wallet', () =>
+    expect(decideOwnership(fresh, 'attacker', now)).toBe('conflict'));
+  it('allows takeover of a stale token', () =>
+    expect(
+      decideOwnership(
+        { wallet_address: 'victim', last_seen: new Date(now - TOKEN_REASSIGN_STALE_MS).toISOString() },
+        'me',
+        now
+      )
+    ).toBe('reassign'));
 });

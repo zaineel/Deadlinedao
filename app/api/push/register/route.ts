@@ -32,6 +32,12 @@ export async function POST(request: NextRequest) {
     if (result === 'limit') {
       return NextResponse.json({ error: 'Too many devices registered' }, { status: 409 });
     }
+    if (result === 'conflict') {
+      return NextResponse.json(
+        { error: 'Token is registered to another account; unregister it there first' },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[push/register] error:', error);
