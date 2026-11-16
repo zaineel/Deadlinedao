@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS team_goals (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   settled_at TIMESTAMP WITH TIME ZONE
 );
+-- Recorded ONCE at settlement (write-if-null): the amount left after the team
+-- distribution that joins the global pool of the deadline day. Never rewritten.
+ALTER TABLE team_goals ADD COLUMN IF NOT EXISTS remainder_to_global DECIMAL(10,4);
+CREATE INDEX IF NOT EXISTS idx_team_goals_deadline ON team_goals(deadline);
 CREATE INDEX IF NOT EXISTS idx_team_goals_team ON team_goals(team_id);
 
 -- Each member's stake/proof is an ordinary goals row linked to the team goal.

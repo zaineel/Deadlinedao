@@ -1,6 +1,9 @@
 import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
+import { isFeatureEnabled } from '@/lib/config/features';
+import { getTeamGoalRemaindersForDay } from '@/lib/supabase/teams';
+import { excludeTeamGoals, sumTeamRemainders } from '@/lib/teams/pool';
 
 /**
  * GET /api/prize-pool?deadline=YYYY-MM-DD
@@ -31,7 +34,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter goals by matching deadline (same day)
-    const goalsForDeadline = filterGoalsByDeadlineDay(allGoals, deadlineParam);
+    // Team member goals are settled separately; they are not part of the global pool.
+    const goalsForDeadline = excludeTeamGoals(filterGoalsByDeadlineDay(allGoals, deadlineParam));
+    const teamRemainder = isFeatureEnabled('teams')
+      ? sumTeamRemainders(await getTeamGoalRemaindersForDay(deadlineParam))
+      : 0;
 
     // Separate by status
     const activeGoals = goalsForDeadline.filter(g => g.status === 'active');
@@ -39,7 +46,7 @@ export async function GET(request: NextRequest) {
     const failedGoals = goalsForDeadline.filter(g => g.status === 'failed');
 
     // Calculate prize pool (failed stakes)
-    const prizePool = failedGoals.reduce((sum, g) => sum + parseFloat(g.stake_amount.toString()), 0);
+    const prizePool = failedGoals.reduce((sum, g) => sum + parseFloat(g.stake_amount.toString()), 0) + teamRemainder;
 
     // Calculate total active stakes (potential winners)
     const totalActiveStakes = activeGoals.reduce((sum, g) => sum + parseFloat(g.stake_amount.toString()), 0);

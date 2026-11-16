@@ -32,11 +32,11 @@ Pure logic: `lib/teams/rewards.ts` (`computeTeamRewards`), `lib/teams/settlement
 - Refused with 409 before the team goal deadline, or while ANY staked member goal is not `completed`/`failed` (active, pending validation, and any appeal/dispute states). Goals whose stake was never confirmed (`stake_tx_signature = 'pending'`) are ignored.
 - Idempotent: re-running skips rewards already claimed and retries rewards whose send failed (claim released). The team goal is marked `settled` only when every reward is paid. `dryRun: true` returns the plan without claiming or sending.
 
-## IMPORTANT: interaction with the global pool (integrator must handle)
-`/api/admin/trigger-rewards` (not modified by this PR) distributes ALL failed goals of a deadline day to ALL completed goals of that day, including team member goals. To avoid paying the same forfeited stake twice, the global run must exclude rows with `team_goal_id` set from BOTH sides (team goals are settled by team settlement), and should add each settled team goal's `remainderToGlobal` to the global pool. Until that change is made, do not run both for the same deadline day with team goals present.
+## Interaction with the global pool
+`/api/admin/trigger-rewards` and `/api/prize-pool` exclude every goal with `team_goal_id` set from the global winner and loser sets (team goals are settled only by team settlement, so no stake is distributed twice and no member gets both a `team_reward` and a `completion_reward`). When settlement completes it records `team_goals.remainder_to_global` once (write-if-null). With `FEATURE_TEAMS` on, the global run for a deadline day adds the recorded remainders of that day's settled team goals to the pool, and refuses (409) while any team goal of that day is still unsettled, so settle team goals first. Pure logic: `lib/teams/pool.ts`.
 
 ## UI
 `/teams` (list + join by code, supports `?code=`), `/teams/new`, `/teams/[id]` (invite link, goals, progress bars, stake button, leaderboard of completed goals), `/teams/[id]/goals/new`. Uses the wallet session via `components/teams/use-teams-api.ts` (signs in on first 401).
 
 ## Integrator notes
-Nav link: add "Teams" -> `/teams` to the header when `FEATURE_TEAMS` is on. No new env vars. The pure `Goal` type does not include `team_goal_id` (types/index.ts untouched).
+Nav link: add "Teams" -> `/teams` to the header when `FEATURE_TEAMS` is on. No new env vars.

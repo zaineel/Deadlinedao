@@ -1,6 +1,8 @@
 import { supabase } from './client';
 import { generateInviteCode } from '@/lib/teams/invite';
 import type { MemberGoalRow } from '@/lib/teams/settlement';
+import type { TeamRemainderRow } from '@/lib/teams/pool';
+import { utcDayRange } from '@/lib/deadlines';
 
 /** DB access for teams. Functions throw on unexpected database errors. */
 
@@ -33,6 +35,7 @@ export interface TeamGoal {
   created_by: string;
   created_at: string;
   settled_at: string | null;
+  remainder_to_global?: number | null;
 }
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === '23505';
@@ -192,4 +195,31 @@ export async function markTeamGoalSettled(id: string): Promise<boolean> {
     .select('id');
   if (error) throw error;
   return (data ?? []).length > 0;
+}
+
+/**
+ * Records a team goal's remainder exactly once (write-if-null). Re-running
+ * settlement can never change or double it. Returns true if this call wrote it.
+ */
+export async function recordTeamRemainder(id: string, amount: number): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('team_goals')
+    .update({ remainder_to_global: amount })
+    .eq('id', id)
+    .is('remainder_to_global', null)
+    .select('id');
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+/** Team goals whose deadline falls on the given UTC day (YYYY-MM-DD). */
+export async function getTeamGoalRemaindersForDay(dateKey: string): Promise<TeamRemainderRow[]> {
+  const { start, end } = utcDayRange(dateKey);
+  const { data, error } = await supabase
+    .from('team_goals')
+    .select('id, status, remainder_to_global')
+    .gte('deadline', start)
+    .lt('deadline', end);
+  if (error) throw error;
+  return (data ?? []) as TeamRemainderRow[];
 }

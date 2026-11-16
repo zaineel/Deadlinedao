@@ -3,7 +3,7 @@ import { featureDisabledResponse } from '@/lib/config/features';
 import { requireAdmin } from '@/lib/auth/admin';
 import { parseBody } from '@/lib/validation/schemas';
 import { settleTeamGoalSchema } from '@/lib/validation/teams-schemas';
-import { getMemberGoals, getTeamGoal, markTeamGoalSettled } from '@/lib/supabase/teams';
+import { getMemberGoals, getTeamGoal, markTeamGoalSettled, recordTeamRemainder } from '@/lib/supabase/teams';
 import { claimPayout, finalizePayout, releasePayout } from '@/lib/supabase/payouts';
 import { sendPayoutFromEscrow } from '@/lib/solana/escrow';
 import { settleTeamGoal } from '@/lib/teams/settle';
@@ -22,8 +22,8 @@ export const dynamic = 'force-dynamic';
  * claimed and retries ones whose send failed.
  *
  * The undistributed remainder (rounding dust, or the whole team pool when
- * nobody completed) simply stays in escrow for the global pool; see
- * docs/features/teams.md for the interaction with /api/admin/trigger-rewards.
+ * nobody completed) is recorded once on the team goal (remainder_to_global)
+ * and joins the global pool of its deadline day in /api/admin/trigger-rewards.
  */
 export async function POST(request: NextRequest) {
   const off = featureDisabledResponse('teams');
@@ -68,8 +68,11 @@ export async function POST(request: NextRequest) {
     }
 
     let settled = teamGoal.status === 'settled';
-    if (!dryRun && result.complete && !settled) {
-      settled = await markTeamGoalSettled(teamGoalId);
+    if (!dryRun && result.complete) {
+      // Record the global-pool remainder once (write-if-null) BEFORE marking settled,
+      // so a settled goal always has its remainder; a re-run repairs a crash in between.
+      await recordTeamRemainder(teamGoalId, result.remainderToGlobal);
+      if (!settled) settled = await markTeamGoalSettled(teamGoalId);
     }
 
     const failed = result.outcomes.filter((o) => o.status === 'failed').length;

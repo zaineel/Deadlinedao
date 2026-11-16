@@ -12,6 +12,8 @@ export interface Goal {
   category: 'learning' | 'work' | 'health';
   created_at: string;
   updated_at: string;
+  /** Set only for team member goals (settled by team settlement, not the global pool). */
+  team_goal_id?: string | null;
 }
 
 export interface Proof {
