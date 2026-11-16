@@ -73,23 +73,6 @@ export const submitProofSchema = z.object({
   signature: z.string().min(80).max(100),
 });
 
-const ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-
-export const presignedUploadSchema = z.object({
-  filename: z
-    .string()
-    .min(1)
-    .max(100)
-    .regex(/^[A-Za-z0-9._-]+$/, 'Filename may only contain letters, numbers, ., _ and -')
-    .refine((f) => !f.includes('..'), 'Invalid filename')
-    .refine(
-      (f) => ALLOWED_IMAGE_EXTENSIONS.includes(f.split('.').pop()!.toLowerCase()),
-      'Only jpg, png, gif and webp images are allowed'
-    ),
-  goal_id: uuidSchema,
-  user_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid user id'),
-});
-
 export const goalStatusUpdateSchema = z.object({
   status: z.enum(['active', 'pending_validation', 'completed', 'failed']),
 });

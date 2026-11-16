@@ -44,3 +44,4 @@ next-env.d.ts
 rsa_key*
 *.p8
 .claude/settings.local.json
+.claude/worktrees/

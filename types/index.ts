@@ -1,3 +1,5 @@
+import type { PayoutType } from '@/lib/config/payout-types';
+
 export interface Goal {
   id: string;
   wallet_address: string;
@@ -30,7 +32,7 @@ export interface Payout {
   wallet_address: string;
   amount: number;
   tx_signature: string;
-  payout_type: 'completion_reward' | 'original_stake';
+  payout_type: PayoutType;
   created_at: string;
 }
 

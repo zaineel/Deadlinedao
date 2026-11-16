@@ -1,3 +1,4 @@
+import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllGoals } from '@/lib/supabase';
 
@@ -30,14 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter goals by matching deadline (same day)
-    const goalsForDeadline = allGoals.filter(g => {
-      const gDeadline = new Date(g.deadline);
-      return (
-        gDeadline.getFullYear() === targetDeadline.getFullYear() &&
-        gDeadline.getMonth() === targetDeadline.getMonth() &&
-        gDeadline.getDate() === targetDeadline.getDate()
-      );
-    });
+    const goalsForDeadline = filterGoalsByDeadlineDay(allGoals, deadlineParam);
 
     // Separate by status
     const activeGoals = goalsForDeadline.filter(g => g.status === 'active');

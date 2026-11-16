@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { parseValue, uuidSchema } from '@/lib/validation/schemas';
@@ -30,6 +31,9 @@ function getR2Client() {
 }
 
 export async function POST(request: NextRequest) {
+  const limited = rateLimit(request, { name: 'upload-proof', limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     console.log('[Upload API] Starting upload...');
 
