@@ -5,7 +5,7 @@ const config = [
   ...coreWebVitals,
   ...typescript,
   {
-    ignores: ['.next/**', 'node_modules/**', 'code/**', 'scripts/**', '.claude/**', 'next-env.d.ts'],
+    ignores: ['.next/**', 'node_modules/**', 'code/**', 'scripts/**', '.claude/**', 'programs/**', 'next-env.d.ts'],
   },
   {
     // Pre-existing code uses these widely; surface them without failing CI.
