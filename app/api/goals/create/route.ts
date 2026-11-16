@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
 import { isDemoMode } from '@/lib/config/demo';
@@ -17,6 +18,9 @@ const connection = new Connection(
 );
 
 export async function POST(request: NextRequest) {
+  const limited = rateLimit(request, { name: 'goals-create', limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const parsed = await parseBody(request, createGoalSchema);
     if (!parsed.ok) return parsed.response;

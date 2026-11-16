@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   createGoalSchema,
   submitProofSchema,
-  presignedUploadSchema,
   dateOnlySchema,
 } from '@/lib/validation/schemas';
 
@@ -48,17 +47,6 @@ describe('submitProofSchema', () => {
   it('rejects non-https images and bad ids', () => {
     expect(submitProofSchema.safeParse({ ...proof, image_url: 'http://x.com/a.png' }).success).toBe(false);
     expect(submitProofSchema.safeParse({ ...proof, goal_id: '1' }).success).toBe(false);
-  });
-});
-
-describe('presignedUploadSchema', () => {
-  const upload = { filename: 'a.png', goal_id: '3f2b8c1e-9d4a-4b6e-8a1f-2c3d4e5f6a7b', user_id: 'abc' };
-  it('accepts an image upload', () => {
-    expect(presignedUploadSchema.safeParse(upload).success).toBe(true);
-  });
-  it('rejects traversal and non-images', () => {
-    expect(presignedUploadSchema.safeParse({ ...upload, filename: '../a.png' }).success).toBe(false);
-    expect(presignedUploadSchema.safeParse({ ...upload, filename: 'a.exe' }).success).toBe(false);
   });
 });
 

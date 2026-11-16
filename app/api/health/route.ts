@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { healthCheck as snowflakeHealth } from '@/lib/snowflake';
 import { healthCheckR2 } from '@/lib/cloudflare';
 import { getEscrowBalance } from '@/lib/solana';
@@ -8,7 +9,10 @@ import { supabase } from '@/lib/supabase';
  * GET /api/health
  * Health check for all services
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const limited = rateLimit(request, { name: 'health', limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const startTime = Date.now();
 
   try {

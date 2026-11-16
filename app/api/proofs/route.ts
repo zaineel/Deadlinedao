@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { createProof, updateProofWithValidation, getProofsByGoal } from '@/lib/supabase';
 import { getGoalById, transitionGoalStatus } from '@/lib/supabase';
 import { validateProof, logValidation, AIPerformanceMonitor } from '@/lib/snowflake';
@@ -18,6 +19,9 @@ export const dynamic = 'force-dynamic';
  * THIS IS THE CORE ENDPOINT - Integrates Snowflake AI!
  */
 export async function POST(request: NextRequest) {
+  const limited = rateLimit(request, { name: 'proofs', limit: 5, windowMs: 60_000 });
+  if (limited) return limited;
+
   const monitor = new AIPerformanceMonitor('proof_validation');
 
   try {
