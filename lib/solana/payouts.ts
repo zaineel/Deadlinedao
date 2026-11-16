@@ -1,4 +1,4 @@
-import { sendPayoutFromEscrow, sendBatchPayouts } from './escrow';
+import { sendPayoutFromEscrow } from './escrow';
 import type { Goal } from '@/types';
 
 /**
@@ -6,144 +6,12 @@ import type { Goal } from '@/types';
  * Winners get their stake back + proportional share of losers' stakes
  */
 
-export interface PayoutRecipient {
-  walletAddress: string;
-  stakeAmount: number;
-  goalId: string;
-}
-
 export interface PayoutResult {
   recipient: string;
   amount: number;
   type: 'original_stake' | 'completion_reward';
   signature?: string;
   error?: string;
-}
-
-export interface RedistributionResult {
-  totalWinnersStake: number;
-  totalLosersStake: number;
-  payouts: PayoutResult[];
-  errors: string[];
-}
-
-/**
- * Calculate proportional redistribution
- * Each winner gets: their original stake + (their stake / total winners stake) * total losers stake
- */
-export function calculateRedistribution(
-  winners: PayoutRecipient[],
-  losers: PayoutRecipient[]
-): Map<string, { originalStake: number; reward: number; total: number }> {
-  const payoutMap = new Map<string, { originalStake: number; reward: number; total: number }>();
-
-  // Calculate totals
-  const totalWinnersStake = winners.reduce((sum, w) => sum + w.stakeAmount, 0);
-  const totalLosersStake = losers.reduce((sum, l) => sum + l.stakeAmount, 0);
-
-  // If no winners, no redistribution
-  if (winners.length === 0 || totalWinnersStake === 0) {
-    return payoutMap;
-  }
-
-  // Calculate each winner's payout
-  for (const winner of winners) {
-    const proportionOfWinners = winner.stakeAmount / totalWinnersStake;
-    const reward = proportionOfWinners * totalLosersStake;
-    const total = winner.stakeAmount + reward;
-
-    payoutMap.set(winner.walletAddress, {
-      originalStake: winner.stakeAmount,
-      reward,
-      total,
-    });
-  }
-
-  return payoutMap;
-}
-
-/**
- * Execute redistribution for a set of completed and failed goals
- * This is the main function called when goals reach their deadline
- */
-export async function executeRedistribution(
-  completedGoals: Goal[],
-  failedGoals: Goal[]
-): Promise<RedistributionResult> {
-  const winners: PayoutRecipient[] = completedGoals.map(goal => ({
-    walletAddress: goal.wallet_address,
-    stakeAmount: goal.stake_amount,
-    goalId: goal.id,
-  }));
-
-  const losers: PayoutRecipient[] = failedGoals.map(goal => ({
-    walletAddress: goal.wallet_address,
-    stakeAmount: goal.stake_amount,
-    goalId: goal.id,
-  }));
-
-  // Calculate redistribution
-  const payoutMap = calculateRedistribution(winners, losers);
-
-  const totalWinnersStake = winners.reduce((sum, w) => sum + w.stakeAmount, 0);
-  const totalLosersStake = losers.reduce((sum, l) => sum + l.stakeAmount, 0);
-
-  const payouts: PayoutResult[] = [];
-  const errors: string[] = [];
-
-  // If no winners, just return (stakes stay in escrow)
-  if (payoutMap.size === 0) {
-    return {
-      totalWinnersStake,
-      totalLosersStake,
-      payouts: [],
-      errors: ['No winners to distribute to'],
-    };
-  }
-
-  // Prepare batch payouts
-  const batchPayouts: Array<{ recipient: string; amount: number }> = [];
-
-  for (const [walletAddress, payout] of payoutMap.entries()) {
-    batchPayouts.push({
-      recipient: walletAddress,
-      amount: payout.total,
-    });
-  }
-
-  // Execute batch payouts
-  const { signatures, errors: batchErrors } = await sendBatchPayouts(batchPayouts);
-
-  // Map results
-  let signatureIndex = 0;
-  for (const [walletAddress, payout] of payoutMap.entries()) {
-    const hasError = batchErrors.find(e => e.recipient === walletAddress);
-
-    if (hasError) {
-      payouts.push({
-        recipient: walletAddress,
-        amount: payout.total,
-        type: payout.reward > 0 ? 'completion_reward' : 'original_stake',
-        error: hasError.error,
-      });
-      errors.push(`Failed to pay ${walletAddress}: ${hasError.error}`);
-    } else {
-      payouts.push({
-        recipient: walletAddress,
-        amount: payout.total,
-        type: payout.reward > 0 ? 'completion_reward' : 'original_stake',
-        signature: signatures[signatureIndex],
-      });
-      signatureIndex++;
-    }
-  }
-
-  return {
-    totalWinnersStake,
-    totalLosersStake,
-    payouts,
-    errors,
-  };
 }
 
 /**
@@ -215,98 +83,6 @@ export async function processCompletionPayout(
 }
 
 /**
- * PHASE 2: Distribute rewards after deadline
- * Called after the deadline has passed to distribute rewards from failed stakes
- */
-export async function distributeDeadlineRewards(
-  completedGoals: Goal[],
-  failedGoals: Goal[]
-): Promise<RedistributionResult> {
-  try {
-    // Calculate proportional rewards (NOT including original stakes)
-    const totalWinnersStake = completedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
-    const totalLosersStake = failedGoals.reduce((sum, g) => sum + g.stake_amount, 0);
-
-    if (completedGoals.length === 0 || totalWinnersStake === 0) {
-      return {
-        totalWinnersStake,
-        totalLosersStake,
-        payouts: [],
-        errors: ['No winners to distribute rewards to'],
-      };
-    }
-
-    if (totalLosersStake === 0) {
-      return {
-        totalWinnersStake,
-        totalLosersStake,
-        payouts: [],
-        errors: ['No failed stakes to redistribute'],
-      };
-    }
-
-    // Calculate each winner's reward (NOT including their stake - already returned)
-    const rewardPayouts: Array<{ recipient: string; amount: number }> = [];
-
-    for (const winner of completedGoals) {
-      const proportion = winner.stake_amount / totalWinnersStake;
-      const reward = proportion * totalLosersStake;
-
-      if (reward > 0) {
-        rewardPayouts.push({
-          recipient: winner.wallet_address,
-          amount: reward,
-        });
-      }
-    }
-
-    // Execute batch reward payouts
-    const { signatures, errors: batchErrors } = await sendBatchPayouts(rewardPayouts);
-
-    const payouts: PayoutResult[] = [];
-    const errors: string[] = [];
-
-    let signatureIndex = 0;
-    for (const rewardPayout of rewardPayouts) {
-      const hasError = batchErrors.find(e => e.recipient === rewardPayout.recipient);
-
-      if (hasError) {
-        payouts.push({
-          recipient: rewardPayout.recipient,
-          amount: rewardPayout.amount,
-          type: 'completion_reward',
-          error: hasError.error,
-        });
-        errors.push(`Failed to pay reward to ${rewardPayout.recipient}: ${hasError.error}`);
-      } else {
-        payouts.push({
-          recipient: rewardPayout.recipient,
-          amount: rewardPayout.amount,
-          type: 'completion_reward',
-          signature: signatures[signatureIndex],
-        });
-        signatureIndex++;
-      }
-    }
-
-    return {
-      totalWinnersStake,
-      totalLosersStake,
-      payouts,
-      errors,
-    };
-  } catch (error) {
-    console.error('Error distributing deadline rewards:', error);
-    return {
-      totalWinnersStake: 0,
-      totalLosersStake: 0,
-      payouts: [],
-      errors: [error instanceof Error ? error.message : 'Unknown error'],
-    };
-  }
-}
-
-/**
  * Calculate potential earnings for a goal
  * Shows users how much they could earn if they complete their goal
  */
@@ -361,33 +137,4 @@ export function formatPayoutBreakdown(
     total: total.toFixed(4),
     rewardPercentage,
   };
-}
-
-/**
- * Simulate redistribution (for testing/preview)
- */
-export function simulateRedistribution(
-  winners: Array<{ wallet: string; stake: number }>,
-  losers: Array<{ wallet: string; stake: number }>
-): Array<{ wallet: string; originalStake: number; reward: number; total: number }> {
-  const winnersData: PayoutRecipient[] = winners.map(w => ({
-    walletAddress: w.wallet,
-    stakeAmount: w.stake,
-    goalId: 'simulated',
-  }));
-
-  const losersData: PayoutRecipient[] = losers.map(l => ({
-    walletAddress: l.wallet,
-    stakeAmount: l.stake,
-    goalId: 'simulated',
-  }));
-
-  const payoutMap = calculateRedistribution(winnersData, losersData);
-
-  return Array.from(payoutMap.entries()).map(([wallet, payout]) => ({
-    wallet,
-    originalStake: payout.originalStake,
-    reward: payout.reward,
-    total: payout.total,
-  }));
 }

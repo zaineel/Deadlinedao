@@ -438,16 +438,3 @@ Explain why this proof was ${context.verdict}. Be professional and constructive.
 
   return completion;
 }
-
-/**
- * Batch validate multiple proofs (for efficiency)
- */
-export async function batchValidateProofs(
-  validations: Array<{ goal: Goal; proofText: string; imageUrl?: string }>
-): Promise<ValidationResult[]> {
-  const results = await Promise.all(
-    validations.map(v => validateProof(v.goal, v.proofText, v.imageUrl))
-  );
-
-  return results;
-}
