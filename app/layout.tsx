@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { SolanaWalletProvider } from '@/components/WalletProvider'
+import { SessionProvider } from '@/components/auth/SessionProvider'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './globals.css'
 
@@ -23,7 +24,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans antialiased`}>
         <SolanaWalletProvider>
-          {children}
+          <SessionProvider>{children}</SessionProvider>
         </SolanaWalletProvider>
         <Analytics />
       </body>

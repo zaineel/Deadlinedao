@@ -13,6 +13,7 @@ import { safeNotify } from '@/lib/disputes/notify';
 import { openAppealWindow } from '@/lib/supabase/disputes';
 import { requireAdmin } from '@/lib/auth/admin';
 import { requireSession } from '@/lib/auth/session';
+import { requireUserSession } from '@/lib/auth/csrf';
 import { z } from 'zod';
 
 // Vercel configuration for Snowflake AI validation
@@ -28,6 +29,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { name: 'proofs', limit: 5, windowMs: 60_000 });
   if (limited) return limited;
+
+  const session = requireUserSession(request, { mutating: true });
+  if (!session.ok) return session.response;
 
   const monitor = new AIPerformanceMonitor('proof_validation');
 
@@ -46,7 +50,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only the goal's owner may submit proof (wallet-signed request)
+    // The session wallet must own the goal (same 404 as missing: no id probing)
+    if (goal.wallet_address !== session.wallet) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+
+    // Defense in depth: the request is also wallet-signed per submission
     const auth = verifyProofAuth({
       walletAddress: goal.wallet_address,
       goalId: goal_id,
