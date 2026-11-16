@@ -223,6 +223,17 @@ describe('vote route', () => {
     expect((await votePost(req('/api/governance/votes', { body: { disputeId: DID, vote: 'uphold' } }))).status).toBe(401);
     expect((await votePost(req('/api/governance/votes', { wallet: ME, body: { disputeId: 'x', vote: 'uphold' } }))).status).toBe(400);
   });
+  it('cookie-authenticated votes must be same-origin (CSRF): cross-site 403, same-origin ok', async () => {
+    const cookie = `dd_session=${issueSession(ME)}`;
+    const body = { disputeId: DID, vote: 'uphold' };
+    const cross = await votePost(req('/api/governance/votes', { body, headers: { cookie, 'sec-fetch-site': 'cross-site' } }));
+    expect(cross.status).toBe(403);
+    const noHeaders = await votePost(req('/api/governance/votes', { body, headers: { cookie } }));
+    expect(noHeaders.status).toBe(403);
+    expect(m.insertVote).not.toHaveBeenCalled();
+    const same = await votePost(req('/api/governance/votes', { body, headers: { cookie, 'sec-fetch-site': 'same-origin' } }));
+    expect(same.status).toBe(201);
+  });
   it('201 on a new vote, 200 on a replay, never exposing other votes', async () => {
     const res = await votePost(req('/api/governance/votes', { wallet: ME, body: { disputeId: DID, vote: 'uphold' } }));
     expect(res.status).toBe(201);

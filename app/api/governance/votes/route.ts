@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { governanceDisabledResponse } from '@/lib/governance/flag';
-import { requireSession } from '@/lib/auth/session';
+import { requireUserSession } from '@/lib/auth/csrf';
 import { rateLimit } from '@/lib/rate-limit';
 import { parseBody } from '@/lib/validation/schemas';
 import { castVoteSchema } from '@/lib/validation/governance-schemas';
@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { name: 'governance-vote', limit: 20, windowMs: 60_000 });
   if (limited) return limited;
 
-  const session = requireSession(request);
+  // Cookie-authenticated mutation: must be same-origin (CSRF rule from web sessions).
+  const session = requireUserSession(request, { mutating: true });
   if (!session.ok) return session.response;
 
   const parsed = await parseBody(request, castVoteSchema);
