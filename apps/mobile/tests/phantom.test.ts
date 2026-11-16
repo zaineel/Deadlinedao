@@ -49,7 +49,7 @@ describe('phantom links', () => {
     });
   });
 
-  it('builds signMessage / signAndSendTransaction URLs', () => {
+  it('builds signMessage / signTransaction URLs', () => {
     const url = buildEncryptedActionUrl('signMessage', {
       dappPublicKey: 'K',
       nonce: 'N',
@@ -64,8 +64,8 @@ describe('phantom links', () => {
       payload: 'P',
     });
     expect(
-      buildEncryptedActionUrl('signAndSendTransaction', { dappPublicKey: 'K', nonce: 'N', redirectLink: 'r', payload: 'P' })
-    ).toContain('/ul/v1/signAndSendTransaction?');
+      buildEncryptedActionUrl('signTransaction', { dappPublicKey: 'K', nonce: 'N', redirectLink: 'r', payload: 'P' })
+    ).toContain('/ul/v1/signTransaction?');
   });
 
   it('parses callbacks, including errors and encoded values', () => {
@@ -136,7 +136,8 @@ function makeFakePhantom(provider: () => PhantomWalletProvider) {
         if (action === 'signMessage') {
           body = { signature: toBase58(nacl.sign.detached(fromBase58(req.message!), wallet.secretKey)) };
         } else {
-          body = { signature: 'TXSIG' + req.transaction!.length };
+          expect(action).toBe('signTransaction');
+          body = { transaction: toBase58(new Uint8Array([9, 9, ...fromBase58(req.transaction!)])) };
         }
       }
       const enc = encryptPayload(body, shared, rand);
@@ -166,6 +167,7 @@ describe('PhantomWalletProvider (against a fake Phantom)', () => {
       appUrl: 'https://app.example.com',
       redirectBase: 'deadlinedao://phantom',
       cluster: 'devnet',
+      broadcastTransaction: async (tx) => 'TXSIG' + tx.length,
       timeoutMs: 500,
     });
     return { p, fake, store };
@@ -181,7 +183,7 @@ describe('PhantomWalletProvider (against a fake Phantom)', () => {
     expect(nacl.sign.detached.verify(msg, sig, fake.wallet.publicKey)).toBe(true);
 
     const txSig = await p.signAndSendTransaction(new Uint8Array([1, 2, 3, 4]));
-    expect(txSig.startsWith('TXSIG')).toBe(true);
+    expect(txSig).toBe('TXSIG6'); // wallet signed (2 bytes added), the app broadcast it
   });
 
   it('surfaces wallet rejection as a WalletError with the code', async () => {
@@ -218,6 +220,7 @@ describe('PhantomWalletProvider (against a fake Phantom)', () => {
       appUrl: 'https://a',
       redirectBase: 'deadlinedao://phantom',
       cluster: 'devnet',
+      broadcastTransaction: async () => 'SIG',
       timeoutMs: 20,
     });
     expect(p.handleRedirect('deadlinedao://phantom/connect?data=x')).toBe(false);
