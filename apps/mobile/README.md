@@ -78,3 +78,6 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Appeals (`app/disputes/[goalId].tsx`, `src/disputes/appeal-flow.ts`): for a `rejected_appealable` goal the app builds the 5% bond transfer to the server `escrowAddress` locally (`src/solana/transfer.ts`, byte-checked against `@solana/web3.js` in `tests/disputes-drift.test.ts`), Phantom signs, the app broadcasts, then POSTs `/api/disputes` with `{goalId, reason, bondSignature}`.
 - Sharing completed goals uses `POST /api/goals/share` (push flag) and the native share sheet with `/p/<id>`.
 - Push registration only runs when the push flag is on and is a no-op in Expo Go.
+
+## Governance (panel voting)
+`app/governance/index.tsx` lists your panel assignments (owner as pseudonym, proof, AI verdict, countdown) and lets you vote overturn/uphold with an optional reason via `POST /api/governance/votes` (bearer session, no wallet signature, idempotent replay). Votes are sealed: only your own vote is shown until resolution. A 404 from `GET /api/governance` means the feature is off. Not run on a device; the entry point to `/governance` is added by the layout owner.
