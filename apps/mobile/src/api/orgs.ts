@@ -79,12 +79,12 @@ export type OrgsApi = ReturnType<typeof createOrgsApi>;
 export async function sendFundingTransfer(
   wallet: Pick<WalletProvider, 'signAndSendTransaction'>,
   api: Pick<OrgsApi, 'getEscrowAddress'>,
-  p: { orgId: string; from: string; sol: number; rpcUrl: string; fetchFn?: typeof fetch }
+  p: { orgId: string; from: string; sol: number; rpcUrl: string; fetchFn?: typeof fetch; escrow?: string }
 ): Promise<string> {
   const lamports = solToLamports(p.sol);
   if (!(lamports > 0)) throw new Error('Amount must be greater than 0');
   const [escrow, recentBlockhash] = await Promise.all([
-    api.getEscrowAddress(p.orgId),
+    p.escrow ?? api.getEscrowAddress(p.orgId),
     fetchLatestBlockhash(p.rpcUrl, p.fetchFn),
   ]);
   return wallet.signAndSendTransaction(buildTransferTransaction({ from: p.from, to: escrow, lamports, recentBlockhash }));

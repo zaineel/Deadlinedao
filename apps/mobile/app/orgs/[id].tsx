@@ -80,6 +80,12 @@ export default function OrgDetail() {
       await load();
     } catch (e) {
       // 503 (RPC not ready) / 400 (not verifiable yet): keep the signature so verification can be retried.
+      if (e instanceof ApiError && e.status === 409) {
+        // Already credited / window closed: nothing left to retry.
+        setPendingSignature(null);
+        setError(e.message);
+        return;
+      }
       setPendingSignature(signature);
       setError(
         e instanceof ApiError && (e.status === 503 || e.status === 400)
@@ -95,11 +101,21 @@ export default function OrgDetail() {
     setError(null);
     setNotice(null);
     try {
+      const sol = Number(amount);
+      const escrow = await orgs.getEscrowAddress(id);
+      const ok = await new Promise<boolean>((resolve) =>
+        Alert.alert('Confirm funding transfer', `Send ${sol} SOL to the escrow address:\n${escrow}`, [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continue', onPress: () => resolve(true) },
+        ], { cancelable: true, onDismiss: () => resolve(false) })
+      );
+      if (!ok) return;
       const signature = await sendFundingTransfer(wallet, orgs, {
         orgId: id,
         from: session.wallet,
-        sol: Number(amount),
+        sol,
         rpcUrl: config.rpcUrl,
+        escrow,
       });
       await verify(signature);
     } catch (e) {
