@@ -5,8 +5,11 @@ import { getGoalById, transitionGoalStatus } from '@/lib/supabase';
 import { validateProof, logValidation, AIPerformanceMonitor } from '@/lib/snowflake';
 import { returnStake } from '@/lib/solana';
 import { GOAL_GRACE_PERIOD_MS } from '@/lib/config/goals';
-import { parseBody, submitProofSchema } from '@/lib/validation/schemas';
+import { parseBody, parseValue, uuidSchema, submitProofSchema } from '@/lib/validation/schemas';
 import { verifyProofAuth } from '@/lib/auth/wallet';
+import { requireAdmin } from '@/lib/auth/admin';
+import { requireSession } from '@/lib/auth/session';
+import { z } from 'zod';
 
 // Vercel configuration for Snowflake AI validation
 export const runtime = 'nodejs';
@@ -146,6 +149,29 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (payoutResult.status === 'unconfirmed') {
+        // The transfer may have landed. Keep the goal completed (do NOT reopen):
+        // a retry could pay twice. An admin reconciles it.
+        console.error(`[API] Stake payout unconfirmed for goal ${goal.id}`);
+        monitor.complete({ verdict: 'approved', payout: undefined });
+        return NextResponse.json(
+          {
+            success: true,
+            proof: updatedProof || proof,
+            validation: validationResult,
+            goal_status: 'completed',
+            payout: {
+              phase: 'stake_return_processing',
+              status: 'unconfirmed',
+              amount: payoutResult.amount,
+              type: 'original_stake',
+              message: 'Your proof was approved. Your stake payout is processing and will be confirmed shortly. Do not resubmit.',
+            },
+          },
+          { status: 202 }
+        );
+      }
+
       const payoutSignature = payoutResult.status === 'sent' ? payoutResult.signature : undefined;
 
       monitor.complete({ verdict: 'approved', payout: payoutSignature });
@@ -214,14 +240,24 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const goal_id = searchParams.get('goal_id');
+    const goalIdResult = parseValue(
+      request.nextUrl.searchParams.get('goal_id'),
+      z.string({ required_error: 'goal_id is required' }).pipe(uuidSchema)
+    );
+    if (!goalIdResult.ok) return goalIdResult.response;
+    const goal_id = goalIdResult.data;
 
-    if (!goal_id) {
-      return NextResponse.json(
-        { error: 'goal_id is required' },
-        { status: 400 }
-      );
+    // Proof text is private: admin key, or a session whose wallet owns the goal.
+    // (No UI calls this endpoint; the proof modal only POSTs.)
+    const adminDenied = requireAdmin(request);
+    if (adminDenied) {
+      const session = requireSession(request);
+      if (!session.ok) return session.response;
+      const { data: goal } = await getGoalById(goal_id);
+      // Same 404 for missing and not-yours, so ids cannot be probed
+      if (!goal || goal.wallet_address !== session.wallet) {
+        return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+      }
     }
 
     const { data: proofs, error } = await getProofsByGoal(goal_id);
