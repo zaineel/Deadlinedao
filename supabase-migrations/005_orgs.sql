@@ -107,6 +107,26 @@ DROP TRIGGER IF EXISTS trg_goals_sig_guard ON goals;
 CREATE TRIGGER trg_goals_sig_guard BEFORE INSERT OR UPDATE OF stake_tx_signature ON goals
   FOR EACH ROW EXECUTE FUNCTION goals_sig_guard();
 
+-- Dispute bonds (003_disputes.sql) are covered too, whichever of 003/005 ran first.
+DO $do$
+BEGIN
+  IF to_regclass('public.disputes') IS NOT NULL THEN
+    EXECUTE $f$
+      CREATE OR REPLACE FUNCTION org_fundings_disputes_sig_guard() RETURNS TRIGGER LANGUAGE plpgsql AS $b$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(hashtext('txsig:' || NEW.tx_signature));
+        IF EXISTS (SELECT 1 FROM disputes WHERE bond_tx_signature = NEW.tx_signature) THEN
+          RAISE EXCEPTION 'signature already used as a dispute bond' USING ERRCODE = '23505';
+        END IF;
+        RETURN NEW;
+      END $b$
+    $f$;
+    DROP TRIGGER IF EXISTS trg_org_fundings_disputes_sig_guard ON org_fundings;
+    CREATE TRIGGER trg_org_fundings_disputes_sig_guard BEFORE INSERT ON org_fundings
+      FOR EACH ROW EXECUTE FUNCTION org_fundings_disputes_sig_guard();
+  END IF;
+END $do$;
+
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_pools ENABLE ROW LEVEL SECURITY;

@@ -7,6 +7,7 @@ import { requireAdmin } from '@/lib/auth/admin';
 import { filterGoalsByDeadlineDay } from '@/lib/deadlines';
 import { parseBody, parseValue, dateOnlySchema } from '@/lib/validation/schemas';
 import { z } from 'zod';
+import { unsettledGoals } from '@/lib/disputes/logic';
 
 // Vercel configuration
 export const runtime = 'nodejs';
@@ -68,6 +69,18 @@ export async function POST(request: NextRequest) {
     const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
     console.log(`[Admin] Found ${goalsWithDeadline.length} goals with deadline ${deadline}`);
+
+    // Never distribute while appeals are still undecided: those stakes are not final
+    const unsettled = unsettledGoals(goalsWithDeadline);
+    if (unsettled.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${unsettled.length} goal(s) for this deadline are still in the appeal window or under dispute. Try again once they are resolved.`,
+        },
+        { status: 409 }
+      );
+    }
 
     // Separate completed and failed goals
     const completedGoals = goalsWithDeadline.filter(g => g.status === 'completed');
@@ -245,6 +258,8 @@ export async function GET(request: NextRequest) {
     // Filter goals by deadline
     const goalsWithDeadline = filterGoalsByDeadlineDay(allGoals, deadline);
 
+    const unsettledCount = unsettledGoals(goalsWithDeadline).length;
+
     // Separate by status
     const completedGoals = goalsWithDeadline.filter(g => g.status === 'completed');
     const failedGoals = goalsWithDeadline.filter(g => g.status === 'failed');
@@ -280,8 +295,10 @@ export async function GET(request: NextRequest) {
         totalFailedStake,
       },
       distribution: preview,
-      canDistribute: completedGoals.length > 0 && failedGoals.length > 0,
-      note: completedGoals.length === 0 ? 'No completed goals to reward' :
+      canDistribute: unsettledCount === 0 && completedGoals.length > 0 && failedGoals.length > 0,
+      pendingAppeals: unsettledCount,
+      note: unsettledCount > 0 ? 'Waiting on appeals: goals are still in the appeal window or disputed' :
+            completedGoals.length === 0 ? 'No completed goals to reward' :
             failedGoals.length === 0 ? 'No failed stakes to distribute' :
             'Ready to distribute rewards',
     });

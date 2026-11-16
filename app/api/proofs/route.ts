@@ -7,6 +7,10 @@ import { returnStake } from '@/lib/solana';
 import { GOAL_GRACE_PERIOD_MS } from '@/lib/config/goals';
 import { parseBody, parseValue, uuidSchema, submitProofSchema } from '@/lib/validation/schemas';
 import { verifyProofAuth } from '@/lib/auth/wallet';
+import { isFeatureEnabled } from '@/lib/config/features';
+import { computeAppealDeadline } from '@/lib/disputes/logic';
+import { safeNotify } from '@/lib/disputes/notify';
+import { openAppealWindow } from '@/lib/supabase/disputes';
 import { requireAdmin } from '@/lib/auth/admin';
 import { requireSession } from '@/lib/auth/session';
 import { z } from 'zod';
@@ -196,8 +200,30 @@ export async function POST(request: NextRequest) {
       }, { status: 200 });
 
     } else if (validationResult.verdict === 'rejected') {
-      // Update goal status to failed
-      await transitionGoalStatus(goal.id, 'active', 'failed');
+      // With disputes enabled the rejection opens a 48h appeal window; the
+      // stake stays in escrow and out of the reward pool until it is final.
+      let finalStatus: 'failed' | 'rejected_appealable' = 'failed';
+      let appealDeadline: Date | null = null;
+      if (isFeatureEnabled('disputes')) {
+        const deadlineAt = computeAppealDeadline(new Date());
+        const { data: opened } = await openAppealWindow(goal.id, deadlineAt);
+        if (opened) {
+          finalStatus = 'rejected_appealable';
+          appealDeadline = deadlineAt;
+          await safeNotify(
+            {
+              kind: 'appeal_window_open',
+              goalId: goal.id,
+              goalTitle: goal.title,
+              closesAt: deadlineAt.toISOString(),
+            },
+            goal.wallet_address
+          );
+        }
+      }
+      if (finalStatus === 'failed') {
+        await transitionGoalStatus(goal.id, 'active', 'failed');
+      }
 
       monitor.complete({ verdict: 'rejected' });
 
@@ -205,7 +231,8 @@ export async function POST(request: NextRequest) {
         success: false,
         proof: updatedProof || proof,
         validation: validationResult,
-        goal_status: 'failed',
+        goal_status: finalStatus,
+        ...(appealDeadline ? { appeal_deadline: appealDeadline.toISOString() } : {}),
         message: 'Proof rejected by AI validation',
       }, { status: 200 });
 

@@ -16,7 +16,7 @@ An AI rejection sets the goal to `failed` immediately. The stake is forfeited an
 3. No appeal -> cron sets the goal to `failed` once `appeal_deadline` passes; existing logic applies.
 4. Admin resolves:
    - **overturned**: goal `completed`, stake returned via `returnStake`, bond refunded (claimed payout, type `bond_refund`).
-   - **upheld**: goal `failed`, bond kept and added to the reward pool.
+   - **upheld**: goal `failed`, bond kept in escrow (v1: not added to the stake-based reward pool; see docs/features/disputes.md).
 
 ## Data model (`supabase-migrations/002_disputes.sql`)
 - `goals.status` check adds `rejected_appealable`, `disputed`; new column `appeal_deadline timestamptz`.

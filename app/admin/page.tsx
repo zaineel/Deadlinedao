@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ReviewQueue } from '@/components/admin/ReviewQueue';
+import { DisputeQueue } from '@/components/admin/DisputeQueue';
 
 interface PreviewData {
   preview: boolean;
@@ -506,6 +507,7 @@ export default function AdminPage() {
           )}
 
           <ReviewQueue adminKey={adminKey} />
+          <DisputeQueue adminKey={adminKey} />
         </div>
       </main>
     </div>
