@@ -1,11 +1,7 @@
 import { getGoalById, transitionGoalStatus } from '@/lib/supabase/goals';
 import { getProofsByGoal } from '@/lib/supabase/proofs';
-import {
-  getDisputeByGoal,
-  getDisputeBySignature,
-  isStakeSignature,
-  createDispute,
-} from '@/lib/supabase/disputes';
+import { getDisputeByGoal, createDispute } from '@/lib/supabase/disputes';
+import { isSignatureUsed } from '@/lib/solana/signature-registry';
 import { verifyStakeTransaction } from '@/lib/solana/escrow';
 import { isDemoMode } from '@/lib/config/demo';
 import { checkCanOpenDispute, computeBond, type OpenRefusal } from './logic';
@@ -40,18 +36,22 @@ export async function openDispute(input: {
   // Do not reveal other wallets' goals
   if (!goal || goal.wallet_address !== input.sessionWallet) return { status: 'goal_not_found' };
 
-  const [existing, sigDispute, sigStake] = await Promise.all([
-    getDisputeByGoal(goal.id),
-    getDisputeBySignature(input.bondSignature),
-    isStakeSignature(input.bondSignature),
-  ]);
-  if (existing.error || sigDispute.error || sigStake.error) return { status: 'error' };
+  // One on-chain transfer is credited once across stakes, org fundings and bonds.
+  // The registry throws on a DB error: fail closed.
+  const existing = await getDisputeByGoal(goal.id);
+  if (existing.error) return { status: 'error' };
+  let signatureUsed: boolean;
+  try {
+    signatureUsed = await isSignatureUsed(input.bondSignature);
+  } catch {
+    return { status: 'error' };
+  }
 
   const check = checkCanOpenDispute({
     goal,
     sessionWallet: input.sessionWallet,
     existingDispute: Boolean(existing.data),
-    signatureAlreadyUsed: Boolean(sigDispute.data) || sigStake.used,
+    signatureAlreadyUsed: signatureUsed,
     now,
   });
   if (!check.ok) return { status: 'refused', reason: check.reason };

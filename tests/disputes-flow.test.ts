@@ -6,8 +6,7 @@ const m = vi.hoisted(() => ({
   getProofsByGoal: vi.fn(),
   getDisputeById: vi.fn(),
   getDisputeByGoal: vi.fn(),
-  getDisputeBySignature: vi.fn(),
-  isStakeSignature: vi.fn(),
+  isSignatureUsed: vi.fn(),
   createDispute: vi.fn(),
   finalizeDispute: vi.fn(),
   verifyStakeTransaction: vi.fn(),
@@ -28,11 +27,10 @@ vi.mock('@/lib/supabase/proofs', () => ({ getProofsByGoal: m.getProofsByGoal }))
 vi.mock('@/lib/supabase/disputes', () => ({
   getDisputeById: m.getDisputeById,
   getDisputeByGoal: m.getDisputeByGoal,
-  getDisputeBySignature: m.getDisputeBySignature,
-  isStakeSignature: m.isStakeSignature,
   createDispute: m.createDispute,
   finalizeDispute: m.finalizeDispute,
 }));
+vi.mock('@/lib/solana/signature-registry', () => ({ isSignatureUsed: m.isSignatureUsed }));
 vi.mock('@/lib/supabase/payouts', () => ({
   claimPayout: m.claimPayout,
   finalizePayout: m.finalizePayout,
@@ -78,8 +76,7 @@ beforeEach(() => {
   delete process.env.NEXT_PUBLIC_DEMO_MODE;
   m.getGoalById.mockResolvedValue({ data: goal(), error: null });
   m.getDisputeByGoal.mockResolvedValue({ data: null, error: null });
-  m.getDisputeBySignature.mockResolvedValue({ data: null, error: null });
-  m.isStakeSignature.mockResolvedValue({ used: false, error: null });
+  m.isSignatureUsed.mockResolvedValue(false);
   m.verifyStakeTransaction.mockResolvedValue({ valid: true, error: null });
   m.transitionGoalStatus.mockResolvedValue({ data: goal({ status: 'disputed' }), error: null });
   m.getProofsByGoal.mockResolvedValue({ data: [{ id: 'p1' }], error: null });
@@ -134,14 +131,21 @@ describe('openDispute', () => {
   });
 
   it('refuses a bond signature already used by another dispute', async () => {
-    m.getDisputeBySignature.mockResolvedValue({ data: dispute({ goal_id: 'other' }), error: null });
+    m.isSignatureUsed.mockResolvedValue(true);
     expect(await openDispute(input())).toEqual({ status: 'refused', reason: 'signature_reused' });
     expect(m.transitionGoalStatus).not.toHaveBeenCalled();
   });
 
   it('refuses a stake transaction reused as a bond', async () => {
-    m.isStakeSignature.mockResolvedValue({ used: true, error: null });
+    m.isSignatureUsed.mockResolvedValue(true);
     expect(await openDispute(input())).toEqual({ status: 'refused', reason: 'signature_reused' });
+    expect(m.verifyStakeTransaction).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the signature registry errors', async () => {
+    m.isSignatureUsed.mockRejectedValue(new Error('db'));
+    expect(await openDispute(input())).toEqual({ status: 'error' });
+    expect(m.transitionGoalStatus).not.toHaveBeenCalled();
   });
 
   it('rejects a bond that fails on-chain verification (wrong amount or sender)', async () => {

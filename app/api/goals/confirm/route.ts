@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
 import { verifyStakeTransaction } from '@/lib/solana/escrow';
+import { isSignatureUsed } from '@/lib/solana/signature-registry';
 import { isDemoMode } from '@/lib/config/demo';
 import { parseBody, confirmGoalSchema } from '@/lib/validation/schemas';
 import { canConfirmStake, PENDING_STAKE_SIGNATURE } from '@/lib/goals/confirm-guard';
@@ -40,13 +41,9 @@ export async function POST(request: NextRequest) {
 
     const isDemoSignature = isDemoMode() && signature.startsWith('demo_tx_');
 
-    // Replay protection: a signature may only back one goal
-    const { data: existing } = await supabase
-      .from('goals')
-      .select('id')
-      .eq('stake_tx_signature', signature)
-      .maybeSingle();
-    if (existing && !isDemoSignature) {
+    // Replay protection: a signature may only back one goal, and never one
+    // that was already credited as an org funding (or any other feature).
+    if (!isDemoSignature && (await isSignatureUsed(signature))) {
       return NextResponse.json({ error: 'Transaction already used' }, { status: 409 });
     }
 
