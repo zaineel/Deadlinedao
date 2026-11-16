@@ -72,5 +72,9 @@ Adding another wallet: implement `WalletProvider`, return it from `getWalletProv
 - Session tokens are bearer tokens with a 24h TTL and no server-side revocation (server design); sign-out only deletes them locally.
 - `npm install` needs `legacy-peer-deps` (see `.npmrc`) because of upstream React Native peer ranges.
 
+## Teams and organizations
+
+Screens: `app/teams/*` (list, create, join with `?code=`, detail with progress and leaderboard, create team goal) and `app/orgs/*` (list, join with `?code=`, detail). API modules: `src/api/teams.ts`, `src/api/orgs.ts`. Members stake on a team goal through the server-built escrow transfer (Phantom signs, the app broadcasts, then `/api/goals/confirm`). Org admins fund the pool with a locally built SOL transfer to the escrow (`src/orgs/funding-tx.ts`, byte-checked against `@solana/web3.js` in tests); the server verifies and credits it. Aggregate stats stay hidden below 5 consenting members, and admin actions only appear for org admins.
+
 ## Governance (panel voting)
 `app/governance/index.tsx` lists your panel assignments (owner as pseudonym, proof, AI verdict, countdown) and lets you vote overturn/uphold with an optional reason via `POST /api/governance/votes` (bearer session, no wallet signature, idempotent replay). Votes are sealed: only your own vote is shown until resolution. A 404 from `GET /api/governance` means the feature is off. Not run on a device; the entry point to `/governance` is added by the layout owner.
