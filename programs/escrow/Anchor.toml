@@ -1,0 +1,15 @@
+# EXPERIMENTAL / UNAUDITED / DEVNET-ONLY. Program id below is a PLACEHOLDER;
+# generate a real one with `anchor keys list` after the first build.
+[features]
+seeds = false
+skip-lint = false
+
+[programs.devnet]
+deadlinedao_escrow = "Escr0wDDao1111111111111111111111111111111111"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/devnet-deployer.json"
+
+[workspace]
+members = ["program"]
