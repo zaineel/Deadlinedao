@@ -147,7 +147,7 @@ export function FeaturesSection() {
                 <Cloud className="w-8 h-8 text-blue-400" />
               </div>
               <h3 className="text-2xl font-bold text-white mb-3">Secure Storage</h3>
-              <p className="text-gray-400 mb-6">Cloudflare R2 with presigned URLs</p>
+              <p className="text-gray-400 mb-6">Cloudflare R2 image storage</p>
             </div>
 
             <div className="space-y-3 mb-8">

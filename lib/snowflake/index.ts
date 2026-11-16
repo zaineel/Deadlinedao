@@ -16,7 +16,6 @@ export {
 // Proof Validation (PRIMARY FEATURE)
 export {
   validateProof,
-  batchValidateProofs,
 } from './validation';
 
 // Image Analysis

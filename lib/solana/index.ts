@@ -22,9 +22,7 @@ export {
   getEscrowBalance,
   verifyStakeTransaction,
   sendPayoutFromEscrow,
-  sendBatchPayouts,
   calculateEscrowHealth,
-  emergencyWithdraw,
   getEscrowAddress,
 } from './escrow';
 
@@ -42,20 +40,14 @@ export type { StakeResult, StakeStatus } from './staking';
 
 // Payout and Redistribution
 export {
-  calculateRedistribution,
-  executeRedistribution,
   processCompletionPayout,
   computeRewardPayouts,
-  distributeDeadlineRewards,
   calculatePotentialEarnings,
   formatPayoutBreakdown,
-  simulateRedistribution,
 } from './payouts';
 
 export type {
-  PayoutRecipient,
   PayoutResult,
-  RedistributionResult,
 } from './payouts';
 
 // Transaction Verification
